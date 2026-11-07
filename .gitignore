@@ -1,0 +1,65 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Built APKs are published as GitHub Release assets, not committed here.
+/apk/
+
+# Local backup bundles (git history snapshots) — not app source.
+/_restore/
+
+# Added for the deploy/sync work
+# The web app is its own git repository (family-health-web/.git).
+/family-health-web/
+node_modules/
+.env
+.env.*
+!.env.example
+/android/local.properties
+/windows/flutter/ephemeral/
+
+# Restore points / git bundles
+/_restore/
+/.claude/
