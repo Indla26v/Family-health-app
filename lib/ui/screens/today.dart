@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/features.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../data/catalog.dart';
 import '../../data/models.dart';
+import '../../services/app_update.dart';
 import '../widgets/common.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/motion.dart';
 import '../widgets/readings.dart';
+import '../widgets/update_ui.dart';
 import 'adherence.dart';
 import 'appointment_form.dart';
 import 'appointments.dart';
@@ -39,6 +42,7 @@ class _TodayScreenState extends State<TodayScreen> {
   @override
   Widget build(BuildContext context) {
     final s = watchStore(context);
+    final updates = context.watch<AppUpdateService?>();
     final c = context.c;
     final visible = s.visibleMembers;
     final sel = visible.any((m) => m.id == s.selectedId) ? s.selectedId : null;
@@ -79,6 +83,10 @@ class _TodayScreenState extends State<TodayScreen> {
               Expanded(child: _QuickAction(icon: Icons.monitor_heart_rounded, label: 'Log reading', onTap: () => pushPage(context, LogReadingScreen(memberId: sel)))),
             ]),
             const SizedBox(height: 14),
+            if (updates != null && (updates.available != null || updates.stage == UpdateStage.downloading)) ...[
+              UpdateBanner(u: updates),
+              const SizedBox(height: 12),
+            ],
             if (review > 0) ...[
               BannerCard(
                 icon: Icons.description_rounded,

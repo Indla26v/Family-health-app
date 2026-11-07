@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'core/theme.dart';
 import 'data/store.dart';
 import 'services/api_client.dart';
+import 'services/app_update.dart';
 import 'services/reminders.dart';
 import 'services/share_inbox.dart';
 import 'services/sync_service.dart';
@@ -16,13 +17,16 @@ Future<void> main() async {
   await TokenStore.instance.load();
   final sync = SyncService(store)..attach();
   await Reminders.init();
+  final updates = AppUpdateService();
   runApp(MultiProvider(
     providers: [
       ChangeNotifierProvider<AppStore>.value(value: store),
       ChangeNotifierProvider<SyncService>.value(value: sync),
+      ChangeNotifierProvider<AppUpdateService>.value(value: updates),
     ],
     child: const FamilyHealthApp(),
   ));
+  updates.check();
   _wireReminders(store);
   ShareInbox.instance.init();
 }

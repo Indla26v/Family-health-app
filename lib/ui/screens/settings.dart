@@ -10,10 +10,12 @@ import '../../core/features.dart';
 import '../../core/theme.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
+import '../../services/app_update.dart';
 import '../../services/pdf_export.dart';
 import '../../services/reminders.dart';
 import '../../services/sync_service.dart';
 import '../widgets/common.dart';
+import '../widgets/update_ui.dart';
 import 'lock_screen.dart';
 import 'login_screen.dart';
 import 'delete_everything.dart';
@@ -87,6 +89,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = watchStore(context);
+    final updates = context.watch<AppUpdateService?>();
     final c = context.c;
     final p = s.prefs;
 
@@ -195,6 +198,31 @@ class SettingsScreen extends StatelessWidget {
           nav(Icons.download_rounded, 'Export health summary (PDF)', 'For a doctor visit', () => _exportPdf(context, s)),
           nav(Icons.person_rounded, 'Who uses this phone', s.currentUser.name, () => _whoUses(context, s)),
         ]),
+        if (updates != null)
+          group('About', [
+            nav(
+              Icons.system_update_rounded,
+              'Check for updates',
+              updates.stage == UpdateStage.checking
+                  ? 'Checking…'
+                  : (updates.available != null
+                      ? 'Update available: v${updates.available!.versionName}'
+                      : 'You’re on the latest version${updates.installedVersion == null ? '' : ' (v${updates.installedVersion})'}'),
+              () async {
+                await updates.check(force: true);
+                if (!context.mounted) return;
+                final info = updates.available;
+                if (info != null) {
+                  showUpdateSheet(context, updates, info);
+                } else {
+                  toast(context, 'You’re on the latest version');
+                }
+              },
+              trailing: updates.stage == UpdateStage.checking
+                  ? const Padding(padding: EdgeInsets.only(right: 8), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
+                  : (updates.available != null ? const StatusPill(label: 'New', tone: 'warn') : null),
+            ),
+          ]),
         if (acct != null && acct.isOwner)
           group('Start over', [
             nav(Icons.delete_forever_rounded, 'Delete everything', 'Family records everywhere · backup kept 6 months', () => deleteEverything(context)),
