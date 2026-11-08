@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/strings.dart';
 import '../../core/theme.dart';
@@ -129,6 +130,34 @@ class _TrendChartState extends State<TrendChart> {
   /// A [Period], or a year (int).
   late Object period = widget.initial;
   (int, int)? sel; // (series, point)
+  /// Where the finger is while sliding; null once let go (the slider then rests on [sel]).
+  double? dragX;
+
+  /// The newest result (first series wins a tie), where the slider starts.
+  static (int, int)? _latest(List<ChartSeries> series) {
+    (int, int)? best;
+    DateTime? bd;
+    for (var si = 0; si < series.length; si++) {
+      for (var pi = 0; pi < series[si].points.length; pi++) {
+        final d = series[si].points[pi].date;
+        if (bd == null || d.isAfter(bd)) {
+          bd = d;
+          best = (si, pi);
+        }
+      }
+    }
+    return best;
+  }
+
+  /// The point on [d]'s day nearest in time to it, if that day has one.
+  static ChartPoint? _closestSameDay(List<ChartPoint> pts, DateTime d) {
+    ChartPoint? best;
+    for (final p in pts) {
+      if (!DateUtils.isSameDay(p.date, d)) continue;
+      if (best == null || p.date.difference(d).abs() < best.date.difference(d).abs()) best = p;
+    }
+    return best;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +170,24 @@ class _TrendChartState extends State<TrendChart> {
       for (final s in widget.series) ChartSeries([for (final p in s.points) if (keep(p)) p], s.color, name: s.name, colourOutside: s.colourOutside)
     ];
     final total = series.fold<int>(0, (a, s) => a + s.points.length);
-    final sp = sel != null && sel!.$1 < series.length && sel!.$2 < series[sel!.$1].points.length ? series[sel!.$1].points[sel!.$2] : null;
+    // The slider always sits on a result: the one picked, else the latest.
+    final valid = sel != null && sel!.$1 < series.length && sel!.$2 < series[sel!.$1].points.length;
+    final cur = valid ? sel : _latest(series);
+    final sp = cur == null ? null : series[cur.$1].points[cur.$2];
+    // Every series' value on the picked day (e.g. 138 / 86 for blood pressure).
+    final same = sp == null
+        ? const <(ChartSeries, ChartPoint)>[]
+        : [
+            for (var si = 0; si < series.length; si++)
+              if (si == cur!.$1)
+                (series[si], sp)
+              else if (_closestSameDay(series[si].points, sp.date) case final p?)
+                (series[si], p)
+          ];
+    String lab(ChartPoint p) => p.label ?? p.value.toStringAsFixed(widget.decimals);
+    // Blood pressure points already carry "138/86" on both lines: say it once.
+    if (same.length > 1 && same.every((e) => lab(e.$2) == lab(same.first.$2))) same.removeRange(1, same.length);
+    final multi = same.length > 1;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (widget.showPeriods) ...[
@@ -167,20 +213,70 @@ class _TrendChartState extends State<TrendChart> {
           child: LayoutBuilder(builder: (context, box) {
             final bands = [if (widget.band != null) widget.band!, ...widget.moreBands];
             final geo = _Geo(series, bands, widget.targetLine, Size(box.maxWidth, widget.height));
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (d) {
-                final hit = geo.nearest(d.localPosition);
-                setState(() => sel = hit);
-              },
-              child: CustomPaint(
-                size: Size(box.maxWidth, widget.height),
-                painter: _ChartPainter(geo: geo, pal: c, sel: sel, bands: bands, target: widget.targetLine, targetLabel: widget.targetLabel, decimals: widget.decimals),
+            final order = geo.byDate();
+            final at = sp == null ? -1 : order.indexWhere((e) => series[e.$1].points[e.$2].date == sp.date);
+            void pick((int, int)? hit) {
+              if (hit == null || hit == sel) return;
+              HapticFeedback.selectionClick();
+              sel = hit;
+            }
+
+            void scrub(Offset o) => setState(() {
+                  dragX = o.dx.clamp(_Geo.left, box.maxWidth - _Geo.right);
+                  pick(geo.nearestByX(dragX!, y: o.dy < widget.height ? o.dy : null));
+                });
+            void step(int d) {
+              if (order.isEmpty) return;
+              setState(() => pick(order[(at + d).clamp(0, order.length - 1)]));
+            }
+
+            String say(int i) {
+              final p = series[order[i].$1].points[order[i].$2];
+              final vals = [
+                for (var si = 0; si < series.length; si++)
+                  if (si == order[i].$1) p else ?_closestSameDay(series[si].points, p.date)
+              ];
+              return '${{for (final e in vals) lab(e)}.join(' / ')} ${widget.unit}, ${fmtDate(p.date)}';
+            }
+
+            final canUp = at >= 0 && at < order.length - 1, canDown = at > 0;
+            return Semantics(
+              slider: true,
+              value: at < 0 ? null : say(at),
+              increasedValue: canUp ? say(at + 1) : null,
+              decreasedValue: canDown ? say(at - 1) : null,
+              onIncrease: canUp ? () => step(1) : null,
+              onDecrease: canDown ? () => step(-1) : null,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (d) => scrub(d.localPosition),
+                onTapUp: (_) => setState(() => dragX = null),
+                onTapCancel: () {
+                  if (dragX != null) setState(() => dragX = null);
+                },
+                onHorizontalDragStart: (d) => scrub(d.localPosition),
+                onHorizontalDragUpdate: (d) => scrub(d.localPosition),
+                onHorizontalDragEnd: (_) => setState(() => dragX = null),
+                onHorizontalDragCancel: () => setState(() => dragX = null),
+                child: CustomPaint(
+                  size: Size(box.maxWidth, widget.height + _scrubH),
+                  painter: _ChartPainter(
+                    geo: geo,
+                    pal: c,
+                    sel: cur,
+                    dragX: dragX,
+                    chartH: widget.height,
+                    bands: bands,
+                    target: widget.targetLine,
+                    targetLabel: widget.targetLabel,
+                    decimals: widget.decimals,
+                  ),
+                ),
               ),
             );
           }),
         ),
-      if (sp != null) ...[
+      if (sp != null && total > 0) ...[
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
@@ -189,10 +285,19 @@ class _TrendChartState extends State<TrendChart> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text.rich(TextSpan(children: [
-                  TextSpan(text: sp.label ?? sp.value.toStringAsFixed(widget.decimals), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()])),
+                  for (var i = 0; i < same.length; i++) ...[
+                    if (i > 0) TextSpan(text: ' / ', style: TextStyle(fontSize: 19, color: c.textSecondary)),
+                    TextSpan(
+                      text: lab(same[i].$2),
+                      style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: multi ? same[i].$1.color : null, fontFeatures: const [FontFeature.tabularFigures()]),
+                    ),
+                  ],
                   TextSpan(text: ' ${widget.unit}', style: TextStyle(fontSize: 15, color: c.textSecondary)),
                 ])),
-                Text('${fmtDate(sp.date)}${sp.lab.isEmpty ? '' : ' · ${sp.lab}'}', style: TextStyle(fontSize: 14, color: c.textSecondary)),
+                Text(
+                  [if (multi) same.map((e) => e.$1.name).where((n) => n.isNotEmpty).join(' / '), fmtDate(sp.date), if (sp.lab.isNotEmpty) sp.lab].where((t) => t.isNotEmpty).join(' · '),
+                  style: TextStyle(fontSize: 14, color: c.textSecondary),
+                ),
               ]),
             ),
             if (widget.onViewReport != null && sp.docId != null) TextLink('View report', icon: Icons.description_rounded, onTap: () => widget.onViewReport!(sp)),
@@ -246,20 +351,42 @@ class _Geo {
   double x(DateTime d) => left + (size.width - left - right) * ((d.millisecondsSinceEpoch - xMin) / (xMax - xMin));
   double y(double v) => top + (size.height - top - bottom) * (1 - (v - yMin) / (yMax - yMin));
 
-  (int, int)? nearest(Offset o) {
+  /// The result closest to [px] along the time axis. When several share that
+  /// spot (systolic and diastolic), the one nearest [y] wins, else the first series.
+  (int, int)? nearestByX(double px, {double? y}) {
     (int, int)? best;
-    var bd = 36.0;
+    var bdx = double.infinity, bdy = double.infinity;
     for (var si = 0; si < series.length; si++) {
       for (var pi = 0; pi < series[si].points.length; pi++) {
         final p = series[si].points[pi];
-        final d = (Offset(x(p.date), y(p.value)) - o).distance;
-        if (d < bd) {
-          bd = d;
+        final dx = (x(p.date) - px).abs();
+        final dy = y == null ? 0.0 : (this.y(p.value) - y).abs();
+        if (dx < bdx - .5 || (dx < bdx + .5 && dy < bdy)) {
+          bdx = dx;
+          bdy = dy;
           best = (si, pi);
         }
       }
     }
     return best;
+  }
+
+  /// One stop per distinct moment, oldest first (first series on ties): the
+  /// steps the slider takes with accessibility "increase / decrease".
+  List<(int, int)> byDate() {
+    final all = [
+      for (var si = 0; si < series.length; si++)
+        for (var pi = 0; pi < series[si].points.length; pi++) (si, pi)
+    ]..sort((a, b) {
+        final c = series[a.$1].points[a.$2].date.compareTo(series[b.$1].points[b.$2].date);
+        return c != 0 ? c : a.$1 - b.$1;
+      });
+    final out = <(int, int)>[];
+    for (final e in all) {
+      if (out.isNotEmpty && series[out.last.$1].points[out.last.$2].date == series[e.$1].points[e.$2].date) continue;
+      out.add(e);
+    }
+    return out;
   }
 
   static double _niceStep(double raw) {
@@ -271,11 +398,16 @@ class _Geo {
   }
 }
 
+/// Room under the chart for the slider track and its thumb.
+const _scrubH = 40.0;
+
 class _ChartPainter extends CustomPainter {
-  _ChartPainter({required this.geo, required this.pal, required this.sel, required this.bands, required this.target, required this.targetLabel, required this.decimals});
+  _ChartPainter({required this.geo, required this.pal, required this.sel, required this.dragX, required this.chartH, required this.bands, required this.target, required this.targetLabel, required this.decimals});
   final _Geo geo;
   final AppPalette pal;
   final (int, int)? sel;
+  final double? dragX;
+  final double chartH;
   final List<ChartBand> bands;
   final double? target;
   final String? targetLabel;
@@ -319,7 +451,22 @@ class _ChartPainter extends CustomPainter {
     for (final t in _xTicks()) {
       final x = geo.x(t.$1);
       if (x < _Geo.left - 2 || x > size.width - _Geo.right + 2) continue;
-      _text(canvas, t.$2, Offset(x, size.height - 20), size: 13, align: TextAlign.center);
+      _text(canvas, t.$2, Offset(x, chartH - 20), size: 13, align: TextAlign.center);
+    }
+    // slider cursor: a line down the chart at the picked result (or under the finger)
+    final sp = sel == null ? null : geo.series[sel!.$1].points[sel!.$2];
+    final scol = sel == null ? pal.accent : geo.series[sel!.$1].color;
+    final cx = dragX ?? (sp == null ? null : geo.x(sp.date));
+    if (cx != null) {
+      final base = chartH - _Geo.bottom;
+      canvas.drawLine(
+        Offset(cx, _Geo.top),
+        Offset(cx, base),
+        Paint()
+          ..shader = LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [scol.withValues(alpha: .15), scol.withValues(alpha: .8)])
+              .createShader(Rect.fromLTRB(cx - 1, _Geo.top, cx + 1, base))
+          ..strokeWidth = 1.5,
+      );
     }
     // series
     for (final s in geo.series) {
@@ -343,6 +490,30 @@ class _ChartPainter extends CustomPainter {
         if (p.outside && s.colourOutside) canvas.drawCircle(o, isSel ? 9.5 : 7, Paint()..color = col..style = PaintingStyle.stroke..strokeWidth = 1.5);
       }
     }
+    if (cx != null) _scrubber(canvas, size, cx, scol);
+  }
+
+  /// The slider under the chart: a soft track that swells up around a round thumb
+  /// sitting exactly below the cursor line.
+  void _scrubber(Canvas canvas, Size size, double cx, Color col) {
+    final l = _Geo.left - 14, r = size.width;
+    final top = chartH + 10, bot = chartH + _scrubH - 4;
+    final fill = Paint()..color = pal.surfaceAlt;
+    canvas.drawRRect(RRect.fromLTRBR(l, top, r, bot, Radius.circular((bot - top) / 2)), fill);
+    // The swell under the thumb, narrower near the ends so it never pokes past them.
+    final bw = min(30.0, min(cx - l, r - cx)), bh = 9.0 * bw / 30;
+    canvas.drawPath(
+      Path()
+        ..moveTo(cx - bw, top + 1)
+        ..cubicTo(cx - bw * .45, top + 1, cx - bw * .55, top - bh, cx, top - bh)
+        ..cubicTo(cx + bw * .55, top - bh, cx + bw * .45, top + 1, cx + bw, top + 1)
+        ..close(),
+      fill,
+    );
+    final c = Offset(cx, (top + bot) / 2 - 3);
+    canvas.drawCircle(c.translate(0, 2), 12, Paint()..color = col.withValues(alpha: .28)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+    canvas.drawCircle(c, 12, Paint()..color = pal.surface);
+    canvas.drawCircle(c, 9.5, Paint()..color = col);
   }
 
   List<(DateTime, String)> _xTicks() {
@@ -376,7 +547,7 @@ class _ChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ChartPainter o) => o.sel != sel || o.geo != geo || o.pal != pal;
+  bool shouldRepaint(_ChartPainter o) => o.sel != sel || o.dragX != dragX || o.geo != geo || o.pal != pal;
 }
 
 /// Month grid for adherence. Cells: green (all taken), amber (1 missed), red (2+), empty.
