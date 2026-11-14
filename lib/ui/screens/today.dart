@@ -19,6 +19,7 @@ import 'diabetes_detail.dart';
 import 'log_reading.dart';
 import 'medicines.dart';
 import 'records.dart';
+import 'reading_history.dart';
 import 'review.dart';
 import 'upload.dart';
 
@@ -143,6 +144,7 @@ class _TodayScreenState extends State<TodayScreen> {
             ],
             // ---- readings
             SectionTitle('Latest readings', action: '+ Log', onAction: () => pushPage(context, LogReadingScreen(memberId: sel))),
+            Align(alignment: Alignment.centerLeft, child: TextLink('Reading history', icon: Icons.history_rounded, onTap: () => pushPage(context, ReadingHistoryScreen(memberId: sel)))),
             const SizedBox(height: 8),
             if (sel == null && !single)
               _ReadingsAll(people: people)

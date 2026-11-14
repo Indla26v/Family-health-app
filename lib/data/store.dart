@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/strings.dart';
 import 'catalog.dart';
+import 'health_reading.dart';
 import 'models.dart';
 import 'sync_state.dart';
 
@@ -343,6 +344,19 @@ class AppStore extends ChangeNotifier {
     return r.isEmpty ? null : r.last;
   }
 
+  /// Confirmed reports plus the matching fasting/post-meal home sugar logs.
+  List<HealthReading> healthReadingsOf(String memberId, String testKey) => [
+        for (final r in resultsOf(memberId, testKey)) HealthReading.lab(r),
+        if (testKey == 'fbs' || testKey == 'ppbs')
+          for (final v in vitalsOf(memberId, VitalType.sugar))
+            if (v.afterMeal == (testKey == 'ppbs')) HealthReading.sugar(v),
+      ]..sort((a, b) => a.date.compareTo(b.date));
+
+  Set<String> healthTestKeysOf(String memberId) => {
+        for (final l in labs) if (l.memberId == memberId && l.confirmed) l.testKey,
+        for (final v in vitals) if (v.memberId == memberId && v.type == VitalType.sugar) v.afterMeal ? 'ppbs' : 'fbs',
+      };
+
   List<LabResult> labsOfDoc(String docId) => labs.where((l) => l.docId == docId).toList();
 
   void addDoc(Doc d, [List<LabResult> results = const []]) {
@@ -522,6 +536,11 @@ class AppStore extends ChangeNotifier {
 
   void addVital(Vital v) {
     vitals.add(v);
+    changed();
+  }
+
+  void deleteVital(String id) {
+    vitals.removeWhere((v) => v.id == id);
     changed();
   }
 

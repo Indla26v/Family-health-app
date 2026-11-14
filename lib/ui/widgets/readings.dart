@@ -13,10 +13,10 @@ StatusInfo weightStatus(List<Vital> w) {
   return StatusInfo(Level.none, '${d > 0 ? 'Up' : 'Down'} ${d.abs().toStringAsFixed(2)} kg');
 }
 
-/// BP, sugar-before-breakfast and weight cards for one member.
+/// BP, fasting sugar, post-meal sugar and weight cards for one member.
 List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required VoidCallback onLog, VoidCallback? onSugar}) {
   final bp = s.vitalsOf(m.id, VitalType.bp);
-  final sugar = s.vitalsOf(m.id, VitalType.sugar).where((v) => !v.afterMeal).toList();
+  final sugar = s.vitalsOf(m.id, VitalType.sugar);
   final weight = s.vitalsOf(m.id, VitalType.weight);
   List<double> tail(List<Vital> l, [double Function(Vital)? f]) => l.skip(l.length > 7 ? l.length - 7 : 0).map(f ?? (v) => v.a).toList();
   return [
@@ -31,17 +31,8 @@ List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required 
       when: bp.isEmpty ? '' : ago(bp.last.at),
       onTap: onLog,
     ),
-    MetricCard(
-      icon: Icons.water_drop_rounded,
-      label: 'Sugar before breakfast',
-      empty: sugar.isEmpty,
-      value: sugar.isEmpty ? '' : sugar.last.a.round().toString(),
-      unit: 'mg/dL',
-      status: sugar.isEmpty ? null : VitalRanges.ofVital(sugar.last),
-      spark: tail(sugar),
-      when: sugar.isEmpty ? '' : ago(sugar.last.at),
-      onTap: onSugar ?? onLog,
-    ),
+    for (final after in [false, true])
+      _sugarCard(sugar.where((v) => v.afterMeal == after).toList(), after, onSugar ?? onLog),
     MetricCard(
       icon: Icons.monitor_weight_rounded,
       label: 'Weight',
@@ -55,3 +46,15 @@ List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required 
     ),
   ];
 }
+
+Widget _sugarCard(List<Vital> sugar, bool after, VoidCallback onTap) => MetricCard(
+      icon: Icons.water_drop_rounded,
+      label: after ? 'Sugar after meal' : 'Fasting sugar',
+      empty: sugar.isEmpty,
+      value: sugar.isEmpty ? '' : sugar.last.a.round().toString(),
+      unit: 'mg/dL',
+      status: sugar.isEmpty ? null : VitalRanges.ofVital(sugar.last),
+      spark: sugar.skip(sugar.length > 7 ? sugar.length - 7 : 0).map((v) => v.a).toList(),
+      when: sugar.isEmpty ? '' : ago(sugar.last.at),
+      onTap: onTap,
+    );

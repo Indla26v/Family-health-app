@@ -87,6 +87,10 @@ const _te = <String, String>{
   'Pulse': 'నాడి',
   'Sugar': 'షుగర్',
   'Before breakfast': 'అల్పాహారానికి ముందు',
+  'Fasting': 'పరగడుపున',
+  'Fasting sugar': 'పరగడుపున షుగర్',
+  'Sugar after meal': 'భోజనం తర్వాత షుగర్',
+  'Reading history': 'రీడింగ్‌ల చరిత్ర',
   'After meal': 'భోజనం తర్వాత',
   'Saved on phone': 'ఫోన్‌లో సేవ్ అయింది',
   // Appointments

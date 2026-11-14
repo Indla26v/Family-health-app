@@ -6,13 +6,16 @@ import '../../core/theme.dart';
 import '../../data/catalog.dart';
 import '../../data/models.dart';
 import '../widgets/common.dart';
+import 'reading_history.dart';
+import 'today.dart';
 
 /// Quick-log sheet: BP / Sugar / Weight / SpO2 with a big numeric keypad and an
 /// instant status pill.
 class LogReadingScreen extends StatefulWidget {
-  const LogReadingScreen({super.key, this.memberId, this.mode = VitalType.bp});
+  const LogReadingScreen({super.key, this.memberId, this.mode = VitalType.bp, this.afterMeal = false});
   final String? memberId;
   final VitalType mode;
+  final bool afterMeal;
   @override
   State<LogReadingScreen> createState() => _LogReadingScreenState();
 }
@@ -21,7 +24,8 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
   late VitalType mode = widget.mode;
   String? memberId;
   String active = 'sys';
-  bool afterMeal = false, saved = false;
+  late bool afterMeal = widget.afterMeal;
+  bool saved = false;
   DateTime at = DateTime.now();
   final vals = <String, String>{'sys': '', 'dia': '', 'pulse': '', 'sugar': '', 'weight': '', 'spo2': ''};
 
@@ -91,7 +95,12 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
 
   Future<void> _pickTime() async {
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(at));
-    if (t != null) setState(() => at = DateTime(at.year, at.month, at.day, t.hour, t.minute));
+    if (t != null && mounted) {
+      setState(() {
+        at = DateTime(at.year, at.month, at.day, t.hour, t.minute);
+        saved = false;
+      });
+    }
   }
 
   void _save() {
@@ -140,6 +149,7 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
             title: tr('Log reading'),
             subtitle: 'Today · ${fmtDay(DateTime.now())}',
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              RoundIconButton(icon: Icons.history_rounded, label: 'Reading history', onTap: () => pushPage(context, ReadingHistoryScreen(memberId: memberId, type: mode))),
               RoundIconButton(icon: Icons.close_rounded, label: 'Close', onTap: () => Navigator.of(context).maybePop()),
             ]),
           ),
@@ -156,7 +166,10 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
                             padding: const EdgeInsets.only(right: 8),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(999),
-                              onTap: () => setState(() => memberId = m.id),
+                              onTap: () => setState(() {
+                                memberId = m.id;
+                                saved = false;
+                              }),
                               child: Container(
                                 padding: const EdgeInsets.fromLTRB(6, 4, 14, 4),
                                 decoration: BoxDecoration(color: m.id == memberId ? c.accentTint : c.surface, borderRadius: BorderRadius.circular(999), border: Border.all(color: m.id == memberId ? c.accent : c.border)),
@@ -208,7 +221,7 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
               if (mode == VitalType.sugar) ...[
                 const SizedBox(height: 12),
                 Row(children: [
-                  for (final (v, l) in [(false, 'Before breakfast'), (true, 'After meal')])
+                  for (final (v, l) in [(false, 'Fasting'), (true, 'After meal')])
                     Expanded(
                       child: Padding(
                         padding: EdgeInsets.only(right: v ? 0 : 8),

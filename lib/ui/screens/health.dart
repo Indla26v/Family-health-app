@@ -7,6 +7,7 @@ import '../../core/features.dart';
 import '../../core/theme.dart';
 import '../../data/card_order.dart';
 import '../../data/catalog.dart';
+import '../../data/health_reading.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../widgets/common.dart';
@@ -16,6 +17,7 @@ import 'arrange_cards.dart';
 import 'bp_detail.dart';
 import 'diabetes_detail.dart';
 import 'log_reading.dart';
+import 'reading_history.dart';
 import 'test_trend.dart';
 import 'today.dart';
 import 'upload.dart';
@@ -54,7 +56,10 @@ class _HealthScreenState extends State<HealthScreen> {
     // The person picked in the header, else whoever uses this phone.
     final m = people.firstWhere((x) => x.id == s.selectedId, orElse: () => people.firstWhere((x) => x.id == s.currentUser.id, orElse: () => people.first));
     // Years with results, newest first; each can be picked on its own.
-    final years = ({for (final l in s.labs) if (l.memberId == m.id && l.confirmed) l.date.year}.toList()..sort((a, b) => b - a)).map((y) => '$y').toList();
+    final years = ({
+      for (final l in s.labs) if (l.memberId == m.id && l.confirmed) l.date.year,
+      for (final v in s.vitals) if (v.memberId == m.id) v.at.year,
+    }.toList()..sort((a, b) => b - a)).map((y) => '$y').toList();
     final key = period == '1y' || years.contains(period) ? period : 'all';
     final from = Span.of(key);
     final conds = byUserOrder(m.conditions.map(conditionById), (c) => 'cond:${c.id}', (c) => c.en, s.prefs.healthOrder);
@@ -64,7 +69,11 @@ class _HealthScreenState extends State<HealthScreen> {
       ScreenHeader(title: tr('Health'), big: true, trailing: headerActions(MemberPicker(members: people, selectedId: m.id, onSelect: s.selectMember))),
       Expanded(
         child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 32), children: staggered([
-          if (conds.isEmpty && !s.labs.any((l) => l.memberId == m.id && l.confirmed))
+          Wrap(spacing: 16, children: [
+            TextLink('Reading history', icon: Icons.history_rounded, onTap: () => pushPage(context, ReadingHistoryScreen(memberId: m.id))),
+            TextLink('Log reading', icon: Icons.add_rounded, onTap: () => pushPage(context, LogReadingScreen(memberId: m.id))),
+          ]),
+          if (conds.isEmpty && s.healthTestKeysOf(m.id).isEmpty && !s.vitals.any((v) => v.memberId == m.id))
             SurfaceCard(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('No results yet for ${m.name}', style: AppText.title),
@@ -75,6 +84,14 @@ class _HealthScreenState extends State<HealthScreen> {
           _PeriodSwitch(options: [('all', 'All time'), ('1y', 'Last 12 months'), for (final y in years) (y, y)], value: key, onChanged: (v) => setState(() => period = v)),
           const SizedBox(height: 4),
           if (conds.isNotEmpty) CardColumn(children: [for (final cd in conds) _ConditionCard(store: s, member: m, def: cd, from: from)]),
+          if (s.vitals.any((v) => v.memberId == m.id && from.has(v.at) && v.type != VitalType.sugar && (v.type != VitalType.bp || !m.conditions.contains('bp')))) ...[
+            const SectionTitle('Home readings'),
+            CardColumn(children: [
+              for (final type in [VitalType.bp, VitalType.weight, VitalType.spo2])
+                if ((type != VitalType.bp || !m.conditions.contains('bp')) && s.vitalsOf(m.id, type).any((v) => from.has(v.at)))
+                  vitalTrendCard(context, s, m, type, from),
+            ]),
+          ],
           _AllTests(store: s, member: m, from: from, skip: {for (final cd in conds) if (cd.keyTest != null && s.resultsOf(m.id, cd.keyTest!).isNotEmpty) cd.keyTest!}),
           if (kCheckupsEnabled) ...[
           const SizedBox(height: 4),
@@ -211,14 +228,17 @@ class _ConditionCard extends StatelessWidget {
     }
     final key = def.keyTest;
     final t = key == null ? null : testByKey(key);
-    final r = key == null ? <LabResult>[] : inPeriod(store.resultsOf(member.id, key), from);
+    final r = key == null ? <HealthReading>[] : inPeriod(store.healthReadingsOf(member.id, key), from);
+    if (def.id == 'diabetes' && r.isEmpty && store.vitalsOf(member.id, VitalType.sugar).any((v) => from.has(v.at))) {
+      return _empty(context, title, 'Home glucose readings below', 'View', () => _open(context));
+    }
     if (t == null || r.isEmpty) return _empty(context, title, from.isAll ? def.emptyHint : 'No results in this period', 'Add report', () => pushPage(context, UploadScreen(memberId: member.id)));
     return labTrendCard(context, store, member, t, title: '$title · ${t.key == 'hba1c' ? 'HbA1c' : t.name}', icon: def.icon, from: from, onTap: () => _open(context));
   }
 }
 
 /// Results dated inside [span] (all of them when null).
-List<LabResult> inPeriod(List<LabResult> r, Span? span) => span == null || span.isAll ? r : r.where((x) => span.has(x.date)).toList();
+List<HealthReading> inPeriod(List<HealthReading> r, Span? span) => span == null || span.isAll ? r : r.where((x) => span.has(x.date)).toList();
 
 /// The display period as a row of pills (scrolls sideways when there are many years).
 class _PeriodSwitch extends StatelessWidget {
@@ -266,21 +286,40 @@ class _PeriodSwitch extends StatelessWidget {
 /// A lab test as a [TrendCard]: every confirmed result (since [from]), normal range
 /// shaded; tap it for the full history and each result's report.
 Widget labTrendCard(BuildContext context, AppStore store, Member member, TestDef t, {String? title, IconData? icon, VoidCallback? onTap, Span? from}) {
-  final r = inPeriod(store.resultsOf(member.id, t.key), from);
-  bool outside(double v) {
-    final l = labStatus(t, v, member.sex).level;
+  final r = inPeriod(store.healthReadingsOf(member.id, t.key), from);
+  bool outside(HealthReading reading) {
+    final l = healthReadingStatus(reading, t, member.sex).level;
     return l != Level.normal && l != Level.none;
   }
 
   return TrendCard(
     title: title ?? t.name,
+    source: t.key == 'fbs' || t.key == 'ppbs' ? r.last.source : null,
     icon: icon,
     unit: t.unit,
-    status: labStatus(t, r.last.value, member.sex),
+    status: healthReadingStatus(r.last, t, member.sex),
     low: t.lowFor(member.sex),
     high: t.highFor(member.sex),
-    points: [for (final x in r) TrendPoint(date: x.date, value: x.value, label: fmtVal(t, x.value), outside: outside(x.value), docId: x.docId)],
+    points: [for (final x in r) TrendPoint(date: x.date, value: x.value, label: fmtVal(t, x.value), outside: outside(x), docId: x.docId)],
     onTap: onTap ?? () => pushPage(context, TestTrendScreen(memberId: member.id, testKey: t.key)),
+  );
+}
+
+Widget vitalTrendCard(BuildContext context, AppStore store, Member member, VitalType type, Span span) {
+  final rows = store.vitalsOf(member.id, type).where((v) => span.has(v.at)).toList();
+  final last = rows.last;
+  final (title, unit, icon) = switch (type) {
+    VitalType.bp => ('Blood pressure', 'mmHg', Icons.monitor_heart_rounded),
+    VitalType.weight => ('Weight', 'kg', Icons.monitor_weight_rounded),
+    VitalType.spo2 => ('Oxygen (SpO2)', '%', Icons.air_rounded),
+    VitalType.sugar => ('Sugar', 'mg/dL', Icons.water_drop_rounded),
+  };
+  return TrendCard(
+    title: title, unit: unit, icon: icon, status: VitalRanges.ofVital(last),
+    points: [for (final v in rows) TrendPoint(date: v.at, value: v.a,
+      label: type == VitalType.bp ? '${v.a.round()}/${v.b.round()}' : type == VitalType.weight ? v.a.toStringAsFixed(2) : '${v.a.round()}',
+      outside: const [Level.high, Level.low].contains(VitalRanges.ofVital(v).level))],
+    onTap: () => pushPage(context, type == VitalType.bp ? BpDetailScreen(memberId: member.id) : ReadingHistoryScreen(memberId: member.id, type: type)),
   );
 }
 
@@ -311,9 +350,9 @@ class _AllTests extends StatelessWidget {
   final Span from;
   @override
   Widget build(BuildContext context) {
-    final mine = store.labs.where((l) => l.memberId == member.id && l.confirmed && !skip.contains(l.testKey));
-    List<TestDef> tests(Iterable<LabResult> l) => byUserOrder({for (final x in l) x.testKey}.map(testByKey).whereType<TestDef>(), (t) => 'test:${t.key}', (t) => t.name, store.prefs.healthOrder);
-    final shown = tests(mine.where((l) => from.has(l.date)));
+    final mine = store.healthTestKeysOf(member.id).difference(skip);
+    List<TestDef> tests(Iterable<String> keys) => byUserOrder(keys.map(testByKey).whereType<TestDef>(), (t) => 'test:${t.key}', (t) => t.name, store.prefs.healthOrder);
+    final shown = tests(mine.where((key) => store.healthReadingsOf(member.id, key).any((r) => from.has(r.date))));
     final hidden = tests(mine).length - shown.length;
     if (shown.isEmpty && hidden == 0) return const SizedBox();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

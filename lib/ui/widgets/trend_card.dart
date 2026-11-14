@@ -34,6 +34,7 @@ class TrendCard extends StatelessWidget {
     this.high,
     this.onTap,
     this.valueText,
+    this.source,
   });
 
   final String title, unit;
@@ -47,6 +48,7 @@ class TrendCard extends StatelessWidget {
 
   /// Overrides the latest value text (e.g. "138/86" for blood pressure).
   final String? valueText;
+  final String? source;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +61,7 @@ class TrendCard extends StatelessWidget {
     return SurfaceCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      semanticLabel: '$title ${valueText ?? last.label} $unit, ${status.word}, ${fmtLongDate(last.date)}.'
+      semanticLabel: '$title ${valueText ?? last.label} $unit, ${status.word}, ${fmtLongDate(last.date)}. ${source ?? ''}'
           '${range == null ? '' : ' Normal $range $unit.'}${prev == null ? '' : ' Previous ${prev.label}.'} ${points.length} results.',
       child: ExcludeSemantics(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -68,12 +70,18 @@ class TrendCard extends StatelessWidget {
             Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
             StatusPill.info(status),
           ]),
+          if (source != null) ...[
+            const SizedBox(height: 4),
+            Text(source!, style: small),
+          ],
           const SizedBox(height: 6),
-          Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-            Text(valueText ?? last.label, style: TextStyle(fontSize: 30, height: 1.1, fontWeight: FontWeight.w700, color: tone == c.ok ? c.text : tone, fontFeatures: const [FontFeature.tabularFigures()])),
-            const SizedBox(width: 4),
-            Text(unit, style: small),
-            const Spacer(),
+          Row(children: [
+            Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+              Text(valueText ?? last.label, style: TextStyle(fontSize: 30, height: 1.1, fontWeight: FontWeight.w700, color: tone == c.ok ? c.text : tone, fontFeatures: const [FontFeature.tabularFigures()])),
+              const SizedBox(width: 4),
+              Text(unit, style: small),
+            ]))),
+            const SizedBox(width: 8),
             Text(fmtLongDate(last.date), style: small),
           ]),
           // One result has no trend yet: the value and its range say it all.

@@ -11,6 +11,8 @@ import '../widgets/lab_chart.dart';
 import 'doc_viewer.dart';
 import 'health.dart';
 import 'medicines.dart';
+import 'log_reading.dart';
+import 'reading_history.dart';
 import 'test_trend.dart';
 import 'today.dart';
 import 'upload.dart';
@@ -98,13 +100,16 @@ class DiabetesDetailScreen extends StatelessWidget {
 
     final fasting = monthly(false), post = monthly(true);
     final fbs = testByKey('fbs')!, ppbs = testByKey('ppbs')!;
-    final hasLabSugar = s.resultsOf(m.id, 'fbs').isNotEmpty || s.resultsOf(m.id, 'ppbs').isNotEmpty;
+    final hasSugar = s.healthReadingsOf(m.id, 'fbs').isNotEmpty || s.healthReadingsOf(m.id, 'ppbs').isNotEmpty;
     final insight = s.insightFor(m.id, 'hba1c');
     final st = last == null ? null : labStatus(hba, last.value, m.sex);
 
     return PageBody(
       header: ScreenHeader(title: 'Diabetes', subtitle: m.name, back: true, trailing: const SettingsButton()),
+      bottom: BigButton(label: 'Log sugar', icon: Icons.add_rounded, onTap: () => pushPage(context, LogReadingScreen(memberId: m.id, mode: VitalType.sugar))),
       children: [
+        Align(alignment: Alignment.centerLeft, child: TextLink('Reading history', icon: Icons.history_rounded,
+          onTap: () => pushPage(context, ReadingHistoryScreen(memberId: m.id, type: VitalType.sugar)))),
         if (last == null)
           SurfaceCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -138,7 +143,7 @@ class DiabetesDetailScreen extends StatelessWidget {
             ]),
           ),
         if (insight != null) InsightCard(text: insight),
-        if (fasting.length + post.length > 1)
+        if (fasting.isNotEmpty || post.isNotEmpty)
           SurfaceCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('Daily sugar', style: AppText.title),
@@ -161,11 +166,11 @@ class DiabetesDetailScreen extends StatelessWidget {
               ]),
             ]),
           ),
-        if (hasLabSugar)
+        if (hasSugar)
           SurfaceCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Lab sugar tests', style: AppText.title),
-              Text('FBS and PPBS from lab reports', style: TextStyle(fontSize: 14, color: c.textSecondary)),
+              const Text('Glucose readings', style: AppText.title),
+              Text('Fasting and post-meal readings · home logs and lab reports', style: TextStyle(fontSize: 14, color: c.textSecondary)),
               const SizedBox(height: 12),
               TrendChart(
                 showPeriods: false,
@@ -183,6 +188,11 @@ class DiabetesDetailScreen extends StatelessWidget {
               Wrap(spacing: 18, runSpacing: 6, children: [
                 Row(mainAxisSize: MainAxisSize.min, children: [Container(width: 14, height: 4, color: m.color), const SizedBox(width: 6), const Text('Fasting (FBS)', style: TextStyle(fontSize: 14))]),
                 Row(mainAxisSize: MainAxisSize.min, children: [Container(width: 14, height: 4, color: c.info), const SizedBox(width: 6), const Text('After meal (PPBS)', style: TextStyle(fontSize: 14))]),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 18, runSpacing: 6, children: [
+                TextLink('Fasting history', onTap: () => pushPage(context, TestTrendScreen(memberId: m.id, testKey: 'fbs'))),
+                TextLink('Post-meal history', onTap: () => pushPage(context, TestTrendScreen(memberId: m.id, testKey: 'ppbs'))),
               ]),
             ]),
           ),
