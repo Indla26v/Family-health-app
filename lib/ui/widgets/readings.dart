@@ -14,7 +14,7 @@ StatusInfo weightStatus(List<Vital> w) {
 }
 
 /// BP, fasting sugar, post-meal sugar and weight cards for one member.
-List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required VoidCallback onLog, VoidCallback? onSugar}) {
+List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required VoidCallback onBp, required ValueChanged<bool> onSugar, required VoidCallback onWeight}) {
   final bp = s.vitalsOf(m.id, VitalType.bp);
   final sugar = s.vitalsOf(m.id, VitalType.sugar);
   final weight = s.vitalsOf(m.id, VitalType.weight);
@@ -29,10 +29,10 @@ List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required 
       status: bp.isEmpty ? null : VitalRanges.ofVital(bp.last),
       spark: tail(bp),
       when: bp.isEmpty ? '' : ago(bp.last.at),
-      onTap: onLog,
+      onTap: onBp,
     ),
     for (final after in [false, true])
-      _sugarCard(sugar.where((v) => v.afterMeal == after).toList(), after, onSugar ?? onLog),
+      _sugarCard(sugar.where((v) => v.afterMeal == after).toList(), after, () => onSugar(after)),
     MetricCard(
       icon: Icons.monitor_weight_rounded,
       label: 'Weight',
@@ -42,7 +42,7 @@ List<Widget> readingCards(BuildContext context, AppStore s, Member m, {required 
       status: weight.isEmpty ? null : weightStatus(weight),
       spark: tail(weight),
       when: weight.isEmpty ? '' : ago(weight.last.at),
-      onTap: onLog,
+      onTap: onWeight,
     ),
   ];
 }

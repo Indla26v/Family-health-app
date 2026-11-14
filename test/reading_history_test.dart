@@ -1,15 +1,20 @@
+import 'dart:io';
+
 import 'package:family_health/core/theme.dart';
 import 'package:family_health/data/models.dart';
 import 'package:family_health/data/store.dart';
 import 'package:family_health/ui/screens/diabetes_detail.dart';
+import 'package:family_health/ui/screens/bp_detail.dart';
 import 'package:family_health/ui/screens/health.dart';
 import 'package:family_health/ui/screens/log_reading.dart';
 import 'package:family_health/ui/screens/reading_history.dart';
 import 'package:family_health/ui/screens/test_trend.dart';
+import 'package:family_health/ui/screens/today.dart';
 import 'package:family_health/ui/widgets/charts.dart';
 import 'package:family_health/ui/widgets/common.dart';
 import 'package:family_health/ui/widgets/trend_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +23,19 @@ import 'support/sample_data.dart';
 
 void main() {
   late AppStore store;
+
+  setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final roboto = FontLoader('Roboto');
+    for (final style in ['regular', 'medium', 'bold']) {
+      roboto.addFont(
+        File(
+          'C:/src/flutter/bin/cache/artifacts/material_fonts/roboto-$style.ttf',
+        ).readAsBytes().then(ByteData.sublistView),
+      );
+    }
+    await roboto.load();
+  });
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -75,6 +93,60 @@ void main() {
     settleStore();
     store.dispose();
   });
+
+  for (final everyone in [false, true]) {
+    testWidgets(
+      'Today ${everyone ? 'everyone rows' : 'member cards'} open BP, fasting and post-meal graphs separately',
+      (t) async {
+        store.selectedId = everyone ? null : 'son';
+        store.addVital(sugar('fast', 99));
+        store.addVital(sugar('post', 145, after: true));
+        store.addVital(
+          Vital(
+            id: 'bp',
+            memberId: 'son',
+            type: VitalType.bp,
+            at: DateTime.now(),
+            a: 120,
+            b: 80,
+          ),
+        );
+        await mount(t, const TodayScreen(), height: 1400);
+        for (final (label, key, value) in [
+          (everyone ? 'BP 120/80' : 'Blood pressure', 'bp', 120.0),
+          (everyone ? 'Fasting glucose 99' : 'Fasting sugar', 'fbs', 99.0),
+          (
+            everyone ? 'Post-meal glucose 145' : 'Sugar after meal',
+            'ppbs',
+            145.0,
+          ),
+        ]) {
+          await t.ensureVisible(find.text(label));
+          await t.pumpAndSettle();
+          await t.tap(find.text(label));
+          await t.pumpAndSettle();
+          expect(find.byType(LogReadingScreen), findsNothing);
+          expect(find.byType(DiabetesDetailScreen), findsNothing);
+          final chart = t.widget<TrendChart>(find.byType(TrendChart));
+          if (key == 'bp') {
+            expect(find.byType(BpDetailScreen), findsOneWidget);
+            expect(chart.series.length, 2);
+            expect(chart.series.first.points.single.value, value);
+          } else {
+            expect(
+              t.widget<TestTrendScreen>(find.byType(TestTrendScreen)).testKey,
+              key,
+            );
+            expect(chart.series.length, 1);
+            expect(chart.series.single.points.single.value, value);
+          }
+          await t.tap(find.byIcon(Icons.arrow_back_rounded));
+          await t.pumpAndSettle();
+        }
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
 
   test(
     'merges only matching confirmed labs and home logs, retaining sources and times',

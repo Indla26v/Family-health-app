@@ -15,15 +15,22 @@ import '../widgets/update_ui.dart';
 import 'adherence.dart';
 import 'appointment_form.dart';
 import 'appointments.dart';
-import 'diabetes_detail.dart';
+import 'bp_detail.dart';
 import 'log_reading.dart';
 import 'medicines.dart';
 import 'records.dart';
 import 'reading_history.dart';
+import 'test_trend.dart';
 import 'review.dart';
 import 'upload.dart';
 
 void pushPage(BuildContext context, Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+
+void openReadingTrend(BuildContext context, String memberId, VitalType type, {bool afterMeal = false}) => pushPage(context, switch (type) {
+  VitalType.bp => BpDetailScreen(memberId: memberId),
+  VitalType.sugar => TestTrendScreen(memberId: memberId, testKey: afterMeal ? 'ppbs' : 'fbs'),
+  _ => ReadingHistoryScreen(memberId: memberId, type: type),
+});
 
 String foodText(Food f) => switch (f) { Food.before => 'Before food', Food.after => 'After food', Food.any => '' };
 
@@ -156,8 +163,9 @@ class _TodayScreenState extends State<TodayScreen> {
                   clipBehavior: Clip.none,
                   children: [
                     for (final w in readingCards(context, s, people.first,
-                        onLog: () => pushPage(context, LogReadingScreen(memberId: people.first.id)),
-                        onSugar: () => pushPage(context, DiabetesDetailScreen(memberId: people.first.id))))
+                        onBp: () => openReadingTrend(context, people.first.id, VitalType.bp),
+                        onSugar: (after) => openReadingTrend(context, people.first.id, VitalType.sugar, afterMeal: after),
+                        onWeight: () => openReadingTrend(context, people.first.id, VitalType.weight)))
                       Padding(padding: const EdgeInsets.only(right: 12, bottom: 12), child: w),
                   ],
                 ),
@@ -351,21 +359,25 @@ class _ReadingsAll extends StatelessWidget {
     final s = watchStore(context);
     final c = context.c;
     final rows = <Widget>[];
-    Widget line(String value, Vital v) => Padding(
+    Widget line(String value, Vital v) => InkWell(
+      onTap: () => openReadingTrend(context, v.memberId, v.type, afterMeal: v.afterMeal),
+      child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 48), child: Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
             Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()])),
             StatusPill.info(VitalRanges.ofVital(v)),
             Text(ago(v.at), style: TextStyle(fontSize: 14, color: c.textSecondary)),
           ]),
-        );
+        )),
+      );
     for (final m in people) {
       final bp = s.latestVital(m.id, VitalType.bp);
       final sg = s.latestVital(m.id, VitalType.sugar, afterMeal: false);
-      if (bp == null && sg == null) continue;
-      rows.add(InkWell(
-        onTap: () => pushPage(context, LogReadingScreen(memberId: m.id)),
-        child: Padding(
+      final post = s.latestVital(m.id, VitalType.sugar, afterMeal: true);
+      final weight = s.latestVital(m.id, VitalType.weight);
+      final oxygen = s.latestVital(m.id, VitalType.spo2);
+      if (bp == null && sg == null && post == null && weight == null && oxygen == null) continue;
+      rows.add(Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Row(children: [
             MemberAvatar(m, size: 40),
@@ -376,11 +388,13 @@ class _ReadingsAll extends StatelessWidget {
                 // One line per reading, each with its own time — BP and sugar
                 // are often logged on different days.
                 if (bp != null) line('BP ${bp.a.round()}/${bp.b.round()}', bp),
-                if (sg != null) line('Sugar ${sg.a.round()}', sg),
+                if (sg != null) line('Fasting glucose ${sg.a.round()}', sg),
+                if (post != null) line('Post-meal glucose ${post.a.round()}', post),
+                if (weight != null) line('Weight ${weight.a.toStringAsFixed(2)} kg', weight),
+                if (oxygen != null) line('SpO2 ${oxygen.a.round()}%', oxygen),
               ]),
             ),
           ]),
-        ),
       ));
       rows.add(const Divider1());
     }
