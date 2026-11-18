@@ -212,13 +212,9 @@ void main() {
         );
         await mount(t, const TodayScreen(), height: 1400);
         for (final (label, key, value) in [
-          (everyone ? 'Blood pressure 120/80 mmHg' : 'Blood pressure', 'bp', 120.0),
-          (everyone ? 'Fasting glucose 99 mg/dL' : 'Fasting glucose', 'fbs', 99.0),
-          (
-            everyone ? 'Post-meal glucose 145 mg/dL' : 'Post-meal glucose',
-            'ppbs',
-            145.0,
-          ),
+          ('Blood pressure', 'bp', 120.0),
+          ('Fasting glucose', 'fbs', 99.0),
+          ('Post-meal glucose', 'ppbs', 145.0),
         ]) {
           await t.ensureVisible(find.text(label));
           await t.pumpAndSettle();

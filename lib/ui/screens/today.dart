@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../core/features.dart';
 import '../../core/strings.dart';
 import '../../core/theme.dart';
-import '../../data/catalog.dart';
 import '../../data/models.dart';
 import '../../data/reading_metric.dart';
 import '../../services/app_update.dart';
@@ -85,12 +84,6 @@ class _TodayScreenState extends State<TodayScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 32),
           children: staggered([
-            Row(children: [
-              Expanded(child: _QuickAction(icon: Icons.monitor_heart_rounded, label: 'Log reading', onTap: () => pushPage(context, LogReadingScreen(memberId: sel)))),
-              const SizedBox(width: 8),
-              Expanded(child: _QuickAction(icon: Icons.upload_file_rounded, label: 'Upload report', onTap: () => pushPage(context, UploadScreen(memberId: sel)))),
-            ]),
-            const SizedBox(height: 14),
             if (updates != null && (updates.available != null || updates.stage == UpdateStage.downloading)) ...[
               UpdateBanner(u: updates),
               const SizedBox(height: 12),
@@ -150,23 +143,13 @@ class _TodayScreenState extends State<TodayScreen> {
               const SizedBox(height: 20),
             ],
             // ---- readings
-            SectionTitle('Latest readings', action: 'History', onAction: () => pushPage(context, ReadingHistoryScreen(memberId: sel))),
-            const SizedBox(height: 8),
-            if (sel == null && !single)
-              _ReadingsAll(people: people)
-            else
-              SizedBox(
-                height: 204 + (MediaQuery.textScalerOf(context).scale(90) - 90).clamp(0, 120),
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  clipBehavior: Clip.none,
-                  children: [
-                    for (final w in readingCards(s, people.first,
-                      (metric) => openReadingTrend(context, people.first.id, metric.type, afterMeal: metric.afterMeal ?? false)))
-                      Padding(padding: const EdgeInsets.only(right: 12, bottom: 12), child: w),
-                  ],
-                ),
-              ),
+            LatestReadingsSection(
+              people: people,
+              store: s,
+              onTrend: (m, metric) => openReadingTrend(context, m.id, metric.type, afterMeal: metric.afterMeal ?? false),
+              onAdd: (m) => pushPage(context, LogReadingScreen(memberId: m.id)),
+              onHistory: (m) => pushPage(context, ReadingHistoryScreen(memberId: m.id)),
+            ),
             if (kAppointmentsEnabled) ...[
               const SizedBox(height: 12),
               const SectionTitle('Next appointment'),
@@ -209,23 +192,6 @@ class _TodayScreenState extends State<TodayScreen> {
       ),
     ]);
   }
-}
-
-class _QuickAction extends StatelessWidget {
-  const _QuickAction({required this.icon, required this.label, required this.onTap});
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => SurfaceCard(
-        onTap: onTap,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        child: Row(children: [
-          IconBadge(icon, size: 40),
-          const SizedBox(width: 10),
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700), maxLines: 2)),
-        ]),
-      );
 }
 
 class _DoseCard extends StatelessWidget {
@@ -302,54 +268,6 @@ class _DoneCard extends StatelessWidget {
         IconButton(onPressed: onDismiss, tooltip: 'Dismiss', icon: const Icon(Icons.close_rounded)),
       ]),
     );
-  }
-}
-
-class _ReadingsAll extends StatelessWidget {
-  const _ReadingsAll({required this.people});
-  final List<Member> people;
-  @override
-  Widget build(BuildContext context) {
-    final s = watchStore(context);
-    final c = context.c;
-    final rows = <Widget>[];
-    Widget line(String value, Vital v) => InkWell(
-      onTap: () => openReadingTrend(context, v.memberId, v.type, afterMeal: v.afterMeal),
-      child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 48), child: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()])),
-            StatusPill.info(VitalRanges.ofVital(v)),
-            Text(ago(v.at), style: TextStyle(fontSize: 14, color: c.textSecondary)),
-          ]),
-        )),
-      );
-    for (final m in people) {
-      final readings = {
-        for (final metric in ReadingMetric.values)
-          if (s.readingsFor(m.id, metric).lastOrNull case final Vital reading) metric: reading,
-      };
-      if (readings.isEmpty) continue;
-      rows.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            MemberAvatar(m, size: 30),
-            const SizedBox(width: 8),
-            Expanded(child: Text(m.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-          ]),
-          const SizedBox(height: 8),
-          for (final entry in readings.entries)
-            line('${entry.key.label} ${entry.key.format(entry.value)} ${entry.key.unit}', entry.value),
-        ]),
-      ));
-      rows.add(const Divider1());
-    }
-    if (rows.isEmpty) {
-      return SurfaceCard(child: Text('No readings yet. Use Log reading to add one.', style: TextStyle(fontSize: 15, color: c.textSecondary)));
-    }
-    rows.removeLast();
-    return SurfaceCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: rows));
   }
 }
 
