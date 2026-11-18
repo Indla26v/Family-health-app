@@ -93,9 +93,7 @@ $assets = @("FamilyHealth.apk", "FamilyHealth-arm64-v8a.apk", "FamilyHealth-arme
   ForEach-Object { Join-Path $assetDir $_ }
 gh release create $tag @assets --target $target --draft --title $tag --notes $Notes
 if ($LASTEXITCODE -ne 0) { throw "Could not create the draft release" }
-$repository = gh repo view --json nameWithOwner --jq '.nameWithOwner'
-if ($LASTEXITCODE -ne 0) { throw "Could not identify the GitHub repository" }
-$published = gh api "repos/$repository/releases" --paginate --jq ".[] | select(.tag_name == `"$tag`" and .draft) | .assets" | ConvertFrom-Json
+$published = (gh release view $tag --json assets | ConvertFrom-Json).assets
 if ($LASTEXITCODE -ne 0 -or @($published).Count -ne $assets.Count) { throw "Draft release assets are incomplete" }
 foreach ($asset in $assets) {
   $name = Split-Path $asset -Leaf
