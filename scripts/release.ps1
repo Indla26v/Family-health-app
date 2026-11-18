@@ -9,15 +9,15 @@
   lib/services/app_update.dart). This script is the publishing half:
 
     1. Bumps the build number in pubspec.yaml (version: X.Y.Z+B -> B+1)
-       — pass -Version to also change the X.Y.Z part.
-    2. Builds the release APK.
+       - pass -Version to also change the X.Y.Z part.
+    2. Builds and verifies the universal APK and three processor-specific APKs.
     3. Copies it to apk/FamilyHealth.apk and, if present, the Google Drive
-       folder (first-install source — the in-app updater takes over after
+       folder (first-install source - the in-app updater takes over after
        that).
     4. Commits the version bump, tags it vX.Y.Z+B, and pushes both.
     5. Publishes a GitHub Release at that tag with the APK attached.
 
-  Commit your other code changes FIRST (git add / git commit as normal) —
+  Commit your other code changes FIRST (git add / git commit as normal) -
   this script only commits the pubspec.yaml/pubspec.lock version bump.
 
 .PARAMETER Notes
@@ -29,8 +29,7 @@
   and only bump the build number.
 
 .PARAMETER SkipBuild
-  Skip `flutter build apk` and reuse the existing build output (for
-  re-publishing after a build you already ran).
+  Verify and use the APKs already built by build-release-apks.ps1.
 
 .EXAMPLE
   .\scripts\release.ps1 -Notes "Fixed BP/sugar reading times on Today"
@@ -59,15 +58,11 @@ $tag = "v$newVersion"
 
 Write-Host "Version: $curName+$curBuild -> $newVersion  (tag $tag)" -ForegroundColor Cyan
 $content = $content -replace '(?m)^version:\s*\d+\.\d+\.\d+\+\d+\s*$', "version: $newVersion"
-Set-Content $pubspec $content -NoNewline
 
-# ---- 2. Build -------------------------------------------------------------
-if (-not $SkipBuild) {
-  flutter build apk --release
-  if ($LASTEXITCODE -ne 0) { throw "flutter build apk failed" }
-}
-$apkSrc = "build\app\outputs\flutter-apk\app-release.apk"
-if (-not (Test-Path $apkSrc)) { throw "Built APK not found at $apkSrc (run without -SkipBuild first)" }
+# ---- 2. Build and verify --------------------------------------------------
+& (Join-Path $PSScriptRoot "build-release-apks.ps1") -Version $newName -Build $newBuild -VerifyOnly:$SkipBuild
+$assetDir = Join-Path "apk" $tag
+$apkSrc = Join-Path $assetDir "FamilyHealth.apk"
 
 # ---- 3. Copy to the usual places ------------------------------------------
 New-Item -ItemType Directory -Force -Path "apk" | Out-Null
@@ -79,20 +74,37 @@ if (Test-Path $driveDir) {
   Copy-Item $apkSrc "$driveDir\FamilyHealth.apk" -Force
   Write-Host "Copied to $driveDir\FamilyHealth.apk" -ForegroundColor Green
 } else {
-  Write-Host "Google Drive folder not found ($driveDir) — skipped." -ForegroundColor Yellow
+  Write-Host "Google Drive folder not found ($driveDir) - skipped." -ForegroundColor Yellow
 }
 
-# ---- 4. Commit, tag, push ---------------------------------------------------
-git add pubspec.yaml pubspec.lock
-git commit -m "Release $tag" | Out-Null
-git tag $tag
+# ---- 4. Commit and push the version bump ----------------------------------
+Set-Content $pubspec $content -NoNewline
+git add -- pubspec.yaml pubspec.lock
+if ($LASTEXITCODE -ne 0) { throw "Could not stage the release version" }
+git commit --only -m "Release $tag" -- pubspec.yaml pubspec.lock
+if ($LASTEXITCODE -ne 0) { throw "Could not commit the release version" }
 git push origin HEAD
-git push origin $tag
-Write-Host "Pushed commit + tag $tag" -ForegroundColor Green
+if ($LASTEXITCODE -ne 0) { throw "Could not push the release commit" }
+$target = (git rev-parse HEAD).Trim()
 
-# ---- 5. Publish the GitHub Release -----------------------------------------
+# ---- 5. Upload a draft, verify published digests, then publish -------------
 if ($Notes -eq "") { $Notes = "Release $tag" }
-gh release create $tag "apk\FamilyHealth.apk" --title $tag --notes $Notes
-if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
-
-Write-Host "`nDone — $tag is live. Phones with the app installed will see 'Update available' within $(20) hours, or right away via Settings -> Check for updates." -ForegroundColor Cyan
+$assets = @("FamilyHealth.apk", "FamilyHealth-arm64-v8a.apk", "FamilyHealth-armeabi-v7a.apk", "FamilyHealth-x86_64.apk") |
+  ForEach-Object { Join-Path $assetDir $_ }
+gh release create $tag @assets --target $target --draft --title $tag --notes $Notes
+if ($LASTEXITCODE -ne 0) { throw "Could not create the draft release" }
+$repository = gh repo view --json nameWithOwner --jq '.nameWithOwner'
+if ($LASTEXITCODE -ne 0) { throw "Could not identify the GitHub repository" }
+$published = gh api "repos/$repository/releases" --paginate --jq ".[] | select(.tag_name == `"$tag`" and .draft) | .assets" | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or @($published).Count -ne $assets.Count) { throw "Draft release assets are incomplete" }
+foreach ($asset in $assets) {
+  $name = Split-Path $asset -Leaf
+  $expected = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+  $uploaded = $published | Where-Object name -eq $name
+  if ($uploaded.digest -ne "sha256:$expected" -or $uploaded.size -ne (Get-Item -LiteralPath $asset).Length) {
+    throw "Draft verification failed for $name"
+  }
+}
+gh release edit $tag --draft=false --latest
+if ($LASTEXITCODE -ne 0) { throw "Could not publish the verified draft" }
+Write-Host "Published $tag with four verified APKs." -ForegroundColor Cyan

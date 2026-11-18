@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -21,70 +23,156 @@ const _kLastCheckKey = 'fh_update_last_check';
 const _kDismissedKey = 'fh_update_dismissed_build';
 
 class UpdateInfo {
-  const UpdateInfo({required this.versionName, required this.buildNumber, required this.apkUrl, required this.notes});
-  final String versionName;
-  final int buildNumber;
-  final String apkUrl;
-  final String notes;
+  const UpdateInfo({
+    required this.versionName,
+    required this.buildNumber,
+    required this.apkUrl,
+    required this.notes,
+    required this.bytes,
+    required this.sha256,
+  });
+  final String versionName, apkUrl, notes, sha256;
+  final int buildNumber, bytes;
+
+  String get sizeLabel => '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
+
+  static UpdateInfo? fromRelease(
+    Map<String, dynamic> release,
+    List<String> abis,
+  ) {
+    final tag = RegExp(
+      r'^v?(\d+\.\d+\.\d+)\+(\d+)$',
+    ).firstMatch(release['tag_name'] as String? ?? '');
+    if (tag == null) return null;
+    final assets = (release['assets'] as List? ?? [])
+        .whereType<Map<String, dynamic>>();
+    final names = [
+      for (final abi in abis)
+        if (const ['arm64-v8a', 'armeabi-v7a', 'x86_64'].contains(abi))
+          'FamilyHealth-$abi.apk',
+      _kApkAssetName,
+    ];
+    for (final name in names) {
+      for (final asset in assets) {
+        if (asset['name'] != name) continue;
+        final url = Uri.tryParse(
+          asset['browser_download_url'] as String? ?? '',
+        );
+        final digest = RegExp(
+          r'^sha256:([0-9a-f]{64})$',
+          caseSensitive: false,
+        ).firstMatch(asset['digest'] as String? ?? '');
+        final bytes = asset['size'];
+        if (url == null ||
+            url.scheme != 'https' ||
+            url.host != 'github.com' ||
+            digest == null ||
+            bytes is! int ||
+            bytes <= 0) {
+          continue;
+        }
+        return UpdateInfo(
+          versionName: tag.group(1)!,
+          buildNumber: int.parse(tag.group(2)!),
+          apkUrl: url.toString(),
+          notes: (release['body'] as String? ?? '').trim(),
+          bytes: bytes,
+          sha256: digest.group(1)!.toLowerCase(),
+        );
+      }
+    }
+    return null;
+  }
 }
 
-enum UpdateStage { idle, checking, downloading, error }
+enum UpdateStage { idle, checking, downloading, openingInstaller, error }
 
 class AppUpdateService extends ChangeNotifier {
+  AppUpdateService({
+    http.Client Function()? client,
+    Future<List<String>> Function()? supportedAbis,
+  }) : _client = client ?? http.Client.new,
+       _supportedAbis = supportedAbis ?? _deviceAbis;
+
+  static Future<List<String>> _deviceAbis() async {
+    try {
+      return await const MethodChannel(
+            'family_health/update',
+          ).invokeListMethod<String>('supportedAbis') ??
+          [];
+    } on MissingPluginException {
+      return [];
+    }
+  }
+
+  final http.Client Function() _client;
+  final Future<List<String>> Function() _supportedAbis;
   UpdateInfo? available;
   UpdateStage stage = UpdateStage.idle;
-  double progress = 0; // 0..1 while downloading
+  double progress = 0;
   String? error;
   int? installedBuild;
   String? installedVersion;
+  bool checkFailed = false;
+  bool upToDate = false;
+  bool get busy =>
+      stage == UpdateStage.checking ||
+      stage == UpdateStage.downloading ||
+      stage == UpdateStage.openingInstaller;
 
-  /// Call once at startup (respects the cooldown so it doesn't hit GitHub on
-  /// every launch); pass [force] for the manual "Check for updates" button.
+  /// Automatic checks respect the cooldown. Manual checks include dismissed builds.
   Future<void> check({bool force = false}) async {
+    if (busy) return;
+    stage = UpdateStage.checking;
+    notifyListeners();
+    http.Client? client;
     try {
       final info = await PackageInfo.fromPlatform();
       installedBuild = int.tryParse(info.buildNumber) ?? 0;
       installedVersion = info.version;
       final sp = await SharedPreferences.getInstance();
-      if (!force) {
-        final last = sp.getInt(_kLastCheckKey);
-        if (last != null && DateTime.now().millisecondsSinceEpoch - last < _kCheckEvery.inMilliseconds) return;
+      final last = sp.getInt(_kLastCheckKey);
+      if (!force &&
+          last != null &&
+          DateTime.now().millisecondsSinceEpoch - last <
+              _kCheckEvery.inMilliseconds) {
+        return;
       }
-      stage = UpdateStage.checking;
-      notifyListeners();
-      final r = await http
-          .get(Uri.parse('https://api.github.com/repos/$_kOwner/$_kRepo/releases/latest'), headers: {'accept': 'application/vnd.github+json'})
+      client = _client();
+      final response = await client
+          .get(
+            Uri.parse(
+              'https://api.github.com/repos/$_kOwner/$_kRepo/releases/latest',
+            ),
+            headers: {'accept': 'application/vnd.github+json'},
+          )
           .timeout(const Duration(seconds: 12));
-      await sp.setInt(_kLastCheckKey, DateTime.now().millisecondsSinceEpoch);
-      if (r.statusCode != 200) {
-        stage = UpdateStage.idle;
-        notifyListeners();
-        return;
+      if (response.statusCode != 200) {
+        throw HttpException(
+          'Release check failed (HTTP ${response.statusCode})',
+        );
       }
-      final j = jsonDecode(r.body) as Map<String, dynamic>;
-      final tag = (j['tag_name'] as String?) ?? '';
-      // Tag looks like "v1.0.1+2" — the build number after '+' is what decides "newer".
-      final m = RegExp(r'^v?(.+)\+(\d+)$').firstMatch(tag);
-      final assets = (j['assets'] as List?) ?? const [];
-      Map<String, dynamic>? apkAsset;
-      for (final a in assets) {
-        if (a is Map<String, dynamic> && a['name'] == _kApkAssetName) apkAsset = a;
+      final release = jsonDecode(response.body) as Map<String, dynamic>;
+      final update = UpdateInfo.fromRelease(release, await _supportedAbis());
+      if (update == null) {
+        throw const FormatException(
+          'No verified update package in the latest release',
+        );
       }
-      if (m == null || apkAsset == null) {
-        available = null;
-        stage = UpdateStage.idle;
-        notifyListeners();
-        return;
-      }
-      final buildNumber = int.parse(m.group(2)!);
       final dismissed = sp.getInt(_kDismissedKey) ?? 0;
-      available = (buildNumber > installedBuild! && buildNumber > dismissed)
-          ? UpdateInfo(versionName: m.group(1)!, buildNumber: buildNumber, apkUrl: apkAsset['browser_download_url'] as String, notes: ((j['body'] as String?) ?? '').trim())
+      available =
+          update.buildNumber > installedBuild! &&
+              (force || update.buildNumber > dismissed)
+          ? update
           : null;
-      stage = UpdateStage.idle;
-      notifyListeners();
+      await sp.setInt(_kLastCheckKey, DateTime.now().millisecondsSinceEpoch);
+      upToDate = update.buildNumber <= installedBuild!;
+      checkFailed = false;
     } catch (e) {
       debugPrint('Update check failed: $e');
+      checkFailed = true;
+    } finally {
+      client?.close();
       stage = UpdateStage.idle;
       notifyListeners();
     }
@@ -93,51 +181,92 @@ class AppUpdateService extends ChangeNotifier {
   /// Hide the banner for this release; it reappears once a newer one ships.
   Future<void> dismiss() async {
     final info = available;
-    if (info == null) return;
-    final sp = await SharedPreferences.getInstance();
-    await sp.setInt(_kDismissedKey, info.buildNumber);
+    if (info == null || busy) return;
     available = null;
     notifyListeners();
+    final sp = await SharedPreferences.getInstance();
+    await sp.setInt(_kDismissedKey, info.buildNumber);
   }
 
-  /// Downloads the new APK (with progress) and opens Android's installer.
+  Future<bool> _verified(File file, UpdateInfo info) async =>
+      await file.exists() &&
+      await file.length() == info.bytes &&
+      (await sha256.bind(file.openRead()).first).toString() == info.sha256;
+
+  /// Only complete, verified files are reused. The installer verifies the signing
+  /// identity against the installed app when it applies the update.
   Future<void> downloadAndInstall() async {
     final info = available;
-    if (info == null) return;
+    if (info == null || busy) return;
     stage = UpdateStage.downloading;
     progress = 0;
     error = null;
     notifyListeners();
+    http.Client? client;
+    File? partial;
+    IOSink? sink;
+    var nextStage = UpdateStage.idle;
     try {
-      final client = http.Client();
-      final resp = await client.send(http.Request('GET', Uri.parse(info.apkUrl)));
-      if (resp.statusCode != 200) throw Exception('Download failed (HTTP ${resp.statusCode})');
-      final total = resp.contentLength ?? 0;
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/FamilyHealth-update.apk');
-      final sink = file.openWrite();
-      var received = 0;
-      await for (final chunk in resp.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (total > 0) {
-          progress = received / total;
-          notifyListeners();
+      final file = File(
+        '${dir.path}/FamilyHealth-${info.buildNumber}-${info.sha256.substring(0, 16)}.apk',
+      );
+      if (!await _verified(file, info)) {
+        if (await file.exists()) await file.delete();
+        partial = File('${file.path}.part');
+        client = _client();
+        final response = await client
+            .send(http.Request('GET', Uri.parse(info.apkUrl)))
+            .timeout(const Duration(seconds: 30));
+        if (response.statusCode != 200) {
+          throw HttpException('Download failed (HTTP ${response.statusCode})');
         }
+        sink = partial.openWrite();
+        var received = 0;
+        var lastPercent = -1;
+        await for (final chunk in response.stream.timeout(
+          const Duration(seconds: 30),
+        )) {
+          received += chunk.length;
+          if (received > info.bytes) {
+            throw const FormatException(
+              'Update is larger than the published package',
+            );
+          }
+          sink.add(chunk);
+          final percent = received * 100 ~/ info.bytes;
+          if (percent != lastPercent) {
+            lastPercent = percent;
+            progress = received / info.bytes;
+            notifyListeners();
+          }
+        }
+        await sink.close();
+        sink = null;
+        if (!await _verified(partial, info)) {
+          throw const FormatException('Update checksum did not match');
+        }
+        await partial.rename(file.path);
       }
-      await sink.close();
-      client.close();
-      stage = UpdateStage.idle;
+      stage = UpdateStage.openingInstaller;
       notifyListeners();
-      final result = await OpenFilex.open(file.path, type: 'application/vnd.android.package-archive');
-      if (result.type != ResultType.done) {
-        error = result.message;
-        stage = UpdateStage.error;
-        notifyListeners();
-      }
+      final result = await OpenFilex.open(
+        file.path,
+        type: 'application/vnd.android.package-archive',
+      );
+      if (result.type != ResultType.done) throw StateError(result.message);
     } catch (e) {
       error = '$e';
-      stage = UpdateStage.error;
+      nextStage = UpdateStage.error;
+    } finally {
+      client?.close();
+      try {
+        await sink?.close();
+        if (partial != null && await partial.exists()) await partial.delete();
+      } catch (e) {
+        debugPrint('Could not clean up partial update: $e');
+      }
+      stage = nextStage;
       notifyListeners();
     }
   }

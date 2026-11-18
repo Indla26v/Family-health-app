@@ -220,7 +220,7 @@ void main() {
     await sync.syncNow();
     expect(server.rows['vitals|${v.id}'], isNotNull);
 
-    store.vitals.removeWhere((x) => x.id == v.id);
+    store.removeVitalsWhere((x) => x.id == v.id);
     store.changed();
     store.saveNow();
     await sync.syncNow();

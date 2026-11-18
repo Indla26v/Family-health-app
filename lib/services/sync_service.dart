@@ -293,9 +293,7 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
       for (final x in s.logs.values) {
         x.memberId = mid(x.memberId);
       }
-      for (final x in s.vitals) {
-        x.memberId = mid(x.memberId);
-      }
+      s.remapVitalMembers(mid);
       for (final x in s.appts) {
         x.memberId = mid(x.memberId);
       }
@@ -351,10 +349,10 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
     // Readings: same person, type, minute and values.
     final dupVitals = <String>{};
     for (final v in s.vitals.where((v) => !online('vitals', v.id))) {
-      if (s.vitals.any((o) => o.id != v.id && online('vitals', o.id) && o.memberId == v.memberId && o.type == v.type && o.at.difference(v.at).inSeconds.abs() < 60 && o.a == v.a && o.b == v.b)) dupVitals.add(v.id);
+      if (s.vitals.any((o) => o.id != v.id && online('vitals', o.id) && o.memberId == v.memberId && o.type == v.type && o.afterMeal == v.afterMeal && o.at.difference(v.at).inSeconds.abs() < 60 && o.a == v.a && o.b == v.b)) dupVitals.add(v.id);
     }
     if (dupVitals.isNotEmpty) {
-      s.vitals.removeWhere((v) => dupVitals.contains(v.id));
+      s.removeVitalsWhere((v) => dupVitals.contains(v.id));
       changed = true;
     }
 
@@ -519,7 +517,7 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
         final medIds = s.meds.where((m) => m.memberId == id).map((m) => m.id).toSet();
         s.meds.removeWhere((m) => m.memberId == id);
         s.logs.removeWhere((k, v) => v.memberId == id || medIds.contains(v.medId));
-        s.vitals.removeWhere((v) => v.memberId == id);
+        s.removeVitalsWhere((v) => v.memberId == id);
         s.appts.removeWhere((a) => a.memberId == id);
         s.checkups.removeWhere((c) => c.memberId == id);
         if (s.selectedId == id) s.selectedId = null;
@@ -534,7 +532,7 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
       case 'doseLogs':
         s.logs.remove(id);
       case 'vitals':
-        s.vitals.removeWhere((v) => v.id == id);
+        s.removeVitalsWhere((v) => v.id == id);
       case 'appointments':
         s.appts.removeWhere((a) => a.id == id);
       case 'checkups':
@@ -853,10 +851,8 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
         );
         s.logs[l.key] = l;
       case 'vitals':
-        _put<Vital>(
-          s.vitals,
+        s.putSyncedVital(
           Vital(id: d['id'] as String, memberId: d['memberId'] as String, type: VitalType.values.byName(d['type'] as String), at: _local(d['at']), a: _dbl(d['a']), b: _dbl(d['b']), pulse: _dbl(d['pulse']), afterMeal: d['afterMeal'] as bool? ?? false),
-          (x) => x.id == d['id'],
         );
       case 'appointments':
         _put<Appointment>(

@@ -205,17 +205,24 @@ class SettingsScreen extends StatelessWidget {
               'Check for updates',
               updates.stage == UpdateStage.checking
                   ? 'Checking…'
-                  : (updates.available != null
-                      ? 'Update available: v${updates.available!.versionName}'
-                      : 'You’re on the latest version${updates.installedVersion == null ? '' : ' (v${updates.installedVersion})'}'),
+                  : updates.checkFailed
+                      ? 'Couldn’t check for updates'
+                      : updates.available != null
+                          ? 'Update available • v${updates.available!.versionName}+${updates.available!.buildNumber}'
+                          : updates.upToDate
+                              ? 'Up to date • v${updates.installedVersion}+${updates.installedBuild}'
+                              : 'Installed v${updates.installedVersion ?? '—'}+${updates.installedBuild ?? '—'}',
               () async {
+                if (updates.busy) return;
                 await updates.check(force: true);
                 if (!context.mounted) return;
                 final info = updates.available;
-                if (info != null) {
+                if (updates.checkFailed) {
+                  toast(context, 'Couldn’t check for updates. Try again.');
+                } else if (info != null) {
                   showUpdateSheet(context, updates, info);
                 } else {
-                  toast(context, 'You’re on the latest version');
+                  toast(context, 'You’re up to date');
                 }
               },
               trailing: updates.stage == UpdateStage.checking

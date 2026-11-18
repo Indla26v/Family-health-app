@@ -35,6 +35,8 @@ class TrendCard extends StatelessWidget {
     this.onTap,
     this.valueText,
     this.source,
+    this.showSinglePoint = false,
+    this.measurementTime = false,
   });
 
   final String title, unit;
@@ -49,11 +51,13 @@ class TrendCard extends StatelessWidget {
   /// Overrides the latest value text (e.g. "138/86" for blood pressure).
   final String? valueText;
   final String? source;
+  final bool showSinglePoint, measurementTime;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final last = points.last;
+    final when = measurementTime ? "${fmtLongDate(last.date)}, ${TimeOfDay.fromDateTime(last.date).format(context)}" : fmtLongDate(last.date);
     final prev = points.length > 1 ? points[points.length - 2] : null;
     final tone = switch (status.level) { Level.normal => c.ok, Level.borderline => c.warn, Level.none => c.textSecondary, _ => c.danger };
     final range = low != null && high != null ? '${_n(low!)}–${_n(high!)}' : high != null ? 'below ${_n(high!)}' : low != null ? 'above ${_n(low!)}' : null;
@@ -61,13 +65,13 @@ class TrendCard extends StatelessWidget {
     return SurfaceCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      semanticLabel: '$title ${valueText ?? last.label} $unit, ${status.word}, ${fmtLongDate(last.date)}. ${source ?? ''}'
+      semanticLabel: '$title ${valueText ?? last.label} $unit, ${status.word}, $when. ${source ?? ''}'
           '${range == null ? '' : ' Normal $range $unit.'}${prev == null ? '' : ' Previous ${prev.label}.'} ${points.length} results.',
       child: ExcludeSemantics(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             if (icon != null) ...[Icon(icon, size: 18, color: c.textSecondary), const SizedBox(width: 8)],
-            Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
+            Expanded(child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
             StatusPill.info(status),
           ]),
           if (source != null) ...[
@@ -81,15 +85,14 @@ class TrendCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(unit, style: small),
             ]))),
-            const SizedBox(width: 8),
-            Text(fmtLongDate(last.date), style: small),
+            if (!measurementTime) ...[const SizedBox(width: 8), Text(when, style: small)],
           ]),
-          // One result has no trend yet: the value and its range say it all.
-          if (points.length > 1) ...[
+          if (measurementTime) Text(when, style: small),
+          if (points.length > 1 || showSinglePoint) ...[
             const SizedBox(height: 12),
             SmoothTrend(points: points, low: low, high: high, color: c.accent2, height: 96),
           ],
-          if (range != null || prev != null) ...[
+          if (range != null || (prev != null && !measurementTime)) ...[
             const SizedBox(height: 10),
             Row(children: [
               if (range != null) ...[

@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -13,6 +14,7 @@ import 'catalog.dart';
 import 'health_reading.dart';
 import 'models.dart';
 import 'sync_state.dart';
+import 'reading_metric.dart';
 
 // v1 held the design's sample family; it is discarded so the app starts clean.
 const _kKey = 'family_health_v2';
@@ -43,7 +45,9 @@ class AppStore extends ChangeNotifier {
   List<LabResult> labs = [];
   List<Medicine> meds = [];
   final Map<String, DoseLog> logs = {};
-  List<Vital> vitals = [];
+  List<Vital> _vitals = [];
+  List<Vital> get vitals => UnmodifiableListView(_vitals);
+  Map<String, Map<ReadingMetric, List<Vital>>>? _readingIndex;
   List<Appointment> appts = [];
   List<Checkup> checkups = [];
   ImportJob? job;
@@ -82,7 +86,8 @@ class AppStore extends ChangeNotifier {
     labs = [];
     meds = [];
     logs.clear();
-    vitals = [];
+    _vitals = [];
+    _readingIndex = null;
     appts = [];
     checkups = [];
     job = null;
@@ -100,7 +105,8 @@ class AppStore extends ChangeNotifier {
       normalizeLab(l);
     }
     meds = list('meds', Medicine.fromJson);
-    vitals = list('vitals', Vital.fromJson);
+    _vitals = list('vitals', Vital.fromJson);
+    _readingIndex = null;
     appts = list('appts', Appointment.fromJson);
     checkups = list('checkups', Checkup.fromJson);
     logs.clear();
@@ -253,7 +259,7 @@ class AppStore extends ChangeNotifier {
     final medIds = meds.where((m) => m.memberId == id).map((m) => m.id).toSet();
     meds.removeWhere((m) => m.memberId == id);
     logs.removeWhere((k, v) => v.memberId == id || medIds.contains(v.medId));
-    vitals.removeWhere((v) => v.memberId == id);
+    removeVitalsWhere((v) => v.memberId == id);
     appts.removeWhere((a) => a.memberId == id);
     checkups.removeWhere((c) => c.memberId == id);
     if (selectedId == id) selectedId = null;
@@ -348,8 +354,8 @@ class AppStore extends ChangeNotifier {
   List<HealthReading> healthReadingsOf(String memberId, String testKey) => [
         for (final r in resultsOf(memberId, testKey)) HealthReading.lab(r),
         if (testKey == 'fbs' || testKey == 'ppbs')
-          for (final v in vitalsOf(memberId, VitalType.sugar))
-            if (v.afterMeal == (testKey == 'ppbs')) HealthReading.sugar(v),
+          for (final v in readingsFor(memberId, testKey == 'ppbs' ? ReadingMetric.post : ReadingMetric.fasting))
+            HealthReading.sugar(v),
       ]..sort((a, b) => a.date.compareTo(b.date));
 
   Set<String> healthTestKeysOf(String memberId) => {
@@ -527,20 +533,67 @@ class AppStore extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------- vitals
-  List<Vital> vitalsOf(String memberId, VitalType t) => vitals.where((v) => v.memberId == memberId && v.type == t).toList()..sort((a, b) => a.at.compareTo(b.at));
+  Map<String, Map<ReadingMetric, List<Vital>>> _indexReadings() {
+    final grouped = <String, Map<ReadingMetric, List<Vital>>>{};
+    for (final reading in _vitals) {
+      final metric = ReadingMetric.of(reading.type, afterMeal: reading.afterMeal);
+      grouped.putIfAbsent(reading.memberId, () => {})
+          .putIfAbsent(metric, () => []).add(reading);
+    }
+    for (final member in grouped.values) {
+      for (final rows in member.values) {
+        rows.sort((a, b) => a.at.compareTo(b.at));
+      }
+    }
+    return grouped;
+  }
 
-  Vital? latestVital(String memberId, VitalType t, {bool? afterMeal}) {
-    final l = vitalsOf(memberId, t).where((v) => afterMeal == null || v.afterMeal == afterMeal).toList();
-    return l.isEmpty ? null : l.last;
+  List<Vital> readingsFor(String memberId, ReadingMetric metric) {
+    final rows = (_readingIndex ??= _indexReadings())[memberId]?[metric];
+    return rows == null ? const [] : UnmodifiableListView(rows);
+  }
+
+  void remapVitalMembers(String Function(String) memberId) {
+    for (final row in _vitals) {
+      row.memberId = memberId(row.memberId);
+    }
+    _readingIndex = null;
+  }
+
+  List<Vital> vitalsOf(String memberId, VitalType type) {
+    if (type != VitalType.sugar) return readingsFor(memberId, ReadingMetric.of(type));
+    return [...readingsFor(memberId, ReadingMetric.fasting), ...readingsFor(memberId, ReadingMetric.post)]
+      ..sort((a, b) => a.at.compareTo(b.at));
+  }
+
+  Vital? latestVital(String memberId, VitalType type, {bool? afterMeal}) {
+    if (type == VitalType.sugar && afterMeal == null) return vitalsOf(memberId, type).lastOrNull;
+    return readingsFor(memberId, ReadingMetric.of(type, afterMeal: afterMeal ?? false)).lastOrNull;
+  }
+
+  /// Sync applies a batch of changes before persisting and notifying listeners.
+  void putSyncedVital(Vital reading) {
+    final index = _vitals.indexWhere((row) => row.id == reading.id);
+    if (index < 0) {
+      _vitals.add(reading);
+    } else {
+      _vitals[index] = reading;
+    }
+    _readingIndex = null;
+  }
+
+  void removeVitalsWhere(bool Function(Vital) matches) {
+    _vitals.removeWhere(matches);
+    _readingIndex = null;
   }
 
   void addVital(Vital v) {
-    vitals.add(v);
+    putSyncedVital(v);
     changed();
   }
 
   void deleteVital(String id) {
-    vitals.removeWhere((v) => v.id == id);
+    removeVitalsWhere((v) => v.id == id);
     changed();
   }
 

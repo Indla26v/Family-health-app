@@ -31,9 +31,9 @@ class _ArrangeCardsScreenState extends State<ArrangeCardsScreen> {
     final s = readStore(context);
     final m = s.member(widget.memberId);
     final order = s.prefs.healthOrder;
-    final conds = byUserOrder((m?.conditions ?? const <String>[]).map(conditionById), (c) => 'cond:${c.id}', (c) => c.en, order);
+    final conds = byUserOrder((m?.conditions ?? const <String>[]).where((id) => id != 'bp').map(conditionById), (c) => 'cond:${c.id}', (c) => c.en, order);
     final tests = byUserOrder(
-      s.healthTestKeysOf(widget.memberId).map(testByKey).whereType<TestDef>(),
+      s.healthTestKeysOf(widget.memberId).where((key) => s.resultsOf(widget.memberId, key).isNotEmpty).map(testByKey).whereType<TestDef>(),
       (t) => 'test:${t.key}',
       (t) => t.name,
       order,

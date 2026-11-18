@@ -6,6 +6,7 @@ import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../data/catalog.dart';
 import '../../data/models.dart';
+import '../../data/reading_metric.dart';
 import '../../services/app_update.dart';
 import '../widgets/common.dart';
 import '../widgets/metric_card.dart';
@@ -23,13 +24,15 @@ import 'reading_history.dart';
 import 'test_trend.dart';
 import 'review.dart';
 import 'upload.dart';
+import 'weight_trend.dart';
 
 void pushPage(BuildContext context, Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
 
 void openReadingTrend(BuildContext context, String memberId, VitalType type, {bool afterMeal = false}) => pushPage(context, switch (type) {
   VitalType.bp => BpDetailScreen(memberId: memberId),
   VitalType.sugar => TestTrendScreen(memberId: memberId, testKey: afterMeal ? 'ppbs' : 'fbs'),
-  _ => ReadingHistoryScreen(memberId: memberId, type: type),
+  VitalType.weight => WeightTrendScreen(memberId: memberId),
+  VitalType.spo2 => VitalTrendScreen(memberId: memberId, metric: ReadingMetric.oxygen),
 });
 
 String foodText(Food f) => switch (f) { Food.before => 'Before food', Food.after => 'After food', Food.any => '' };
@@ -58,24 +61,23 @@ class _TodayScreenState extends State<TodayScreen> {
     final single = visible.length == 1;
     final now = DateTime.now();
 
-    final all = [for (final m in people) ...s.dosesOn(now, memberId: m.id, now: now)]..sort((a, b) => a.time.compareTo(b.time));
+    final all = [if (kMedicinesEnabled) for (final m in people) ...s.dosesOn(now, memberId: m.id, now: now)]..sort((a, b) => a.time.compareTo(b.time));
     final due = all.where((d) => d.status == DoseStatus.due).toList();
     final upcoming = all.where((d) => d.status == DoseStatus.upcoming).toList();
     final taken = all.where((d) => d.status == DoseStatus.taken).length;
     final showDose = due.isNotEmpty ? due.first : (upcoming.isNotEmpty ? upcoming.first : null);
-    final missed = [for (final m in people) ...s.missedToday(m.id)];
-    final appts = [for (final a in s.upcomingAppts()) if (people.any((m) => m.id == a.memberId)) a];
+    final missed = [if (kMedicinesEnabled) for (final m in people) ...s.missedToday(m.id)];
+    final appts = [if (kAppointmentsEnabled) for (final a in s.upcomingAppts()) if (people.any((m) => m.id == a.memberId)) a];
     final review = s.reviewDocs().where((d) => people.any((m) => m.id == d.memberId)).length;
 
-    final week = now.subtract(const Duration(days: 7));
-    final readings = s.vitals.where((v) => people.any((m) => m.id == v.memberId) && v.at.isAfter(week)).length;
-    final docs = [for (final d in s.docsFor(null)) if (people.any((m) => m.id == d.memberId)) d];
-    final who = sel != null ? s.member(sel)!.name : (single ? visible.first.name : s.currentUser.name);
+    final ids = people.map((member) => member.id).toSet();
+    final docs = s.docsFor(null).where((doc) => ids.contains(doc.memberId)).toList();
+    final who = sel != null ? s.member(sel)!.name : (single ? visible.first.name : 'Family');
 
     return Column(children: [
       ScreenHeader(
         title: tr('Today'),
-        subtitle: '${fmtWeekday(now)}, ${fmtDay(now)}',
+        subtitle: '$who • ${fmtWeekday(now)}, ${fmtDay(now)}',
         big: true,
         trailing: headerActions(single ? null : MemberPicker(members: visible, selectedId: sel, includeAll: true, onSelect: s.selectMember)),
       ),
@@ -83,12 +85,10 @@ class _TodayScreenState extends State<TodayScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 32),
           children: staggered([
-            _HeroCard(name: who, reports: docs.length, readings: readings, review: review),
-            const SizedBox(height: 14),
             Row(children: [
-              Expanded(child: _QuickAction(icon: Icons.upload_file_rounded, label: 'Upload report', onTap: () => pushPage(context, const UploadScreen()))),
-              const SizedBox(width: 12),
               Expanded(child: _QuickAction(icon: Icons.monitor_heart_rounded, label: 'Log reading', onTap: () => pushPage(context, LogReadingScreen(memberId: sel)))),
+              const SizedBox(width: 8),
+              Expanded(child: _QuickAction(icon: Icons.upload_file_rounded, label: 'Upload report', onTap: () => pushPage(context, UploadScreen(memberId: sel)))),
             ]),
             const SizedBox(height: 14),
             if (updates != null && (updates.available != null || updates.stage == UpdateStage.downloading)) ...[
@@ -150,22 +150,19 @@ class _TodayScreenState extends State<TodayScreen> {
               const SizedBox(height: 20),
             ],
             // ---- readings
-            SectionTitle('Latest readings', action: '+ Log', onAction: () => pushPage(context, LogReadingScreen(memberId: sel))),
-            Align(alignment: Alignment.centerLeft, child: TextLink('Reading history', icon: Icons.history_rounded, onTap: () => pushPage(context, ReadingHistoryScreen(memberId: sel)))),
+            SectionTitle('Latest readings', action: 'History', onAction: () => pushPage(context, ReadingHistoryScreen(memberId: sel))),
             const SizedBox(height: 8),
             if (sel == null && !single)
               _ReadingsAll(people: people)
             else
               SizedBox(
-                height: 204,
+                height: 204 + (MediaQuery.textScalerOf(context).scale(90) - 90).clamp(0, 120),
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   clipBehavior: Clip.none,
                   children: [
-                    for (final w in readingCards(context, s, people.first,
-                        onBp: () => openReadingTrend(context, people.first.id, VitalType.bp),
-                        onSugar: (after) => openReadingTrend(context, people.first.id, VitalType.sugar, afterMeal: after),
-                        onWeight: () => openReadingTrend(context, people.first.id, VitalType.weight)))
+                    for (final w in readingCards(s, people.first,
+                      (metric) => openReadingTrend(context, people.first.id, metric.type, afterMeal: metric.afterMeal ?? false)))
                       Padding(padding: const EdgeInsets.only(right: 12, bottom: 12), child: w),
                   ],
                 ),
@@ -211,49 +208,6 @@ class _TodayScreenState extends State<TodayScreen> {
         ),
       ),
     ]);
-  }
-}
-
-/// Greeting card at the top of Today: who, and a glance at their records.
-class _HeroCard extends StatelessWidget {
-  const _HeroCard({required this.name, required this.reports, required this.readings, required this.review});
-  final String name;
-  final int reports, readings, review;
-  @override
-  Widget build(BuildContext context) {
-    final h = DateTime.now().hour;
-    final greet = h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : 'Good evening');
-    Widget stat(int n, String label) => Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: n.toDouble()),
-              duration: Duration(milliseconds: reduceMotion(context) ? 0 : 900),
-              curve: kEaseOut,
-              builder: (_, v, _) => Text('${v.round()}', style: const TextStyle(fontSize: 26, height: 30 / 26, fontWeight: FontWeight.w800, color: Colors.white, fontFeatures: [FontFeature.tabularFigures()])),
-            ),
-            Text(label, style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: .82), fontWeight: FontWeight.w500)),
-          ]),
-        );
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-      clipBehavior: Clip.antiAlias,
-      // Always the deep teal → indigo, so white text keeps its contrast in dark mode too.
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [AppPalette.light.accent, AppPalette.light.accent2], begin: Alignment.topLeft, end: Alignment.bottomRight),
-        borderRadius: BorderRadius.circular(kRadiusCard + 4),
-        boxShadow: [BoxShadow(color: AppPalette.light.accent2.withValues(alpha: .22), blurRadius: 22, spreadRadius: -8, offset: const Offset(0, 10))],
-      ),
-      child: Stack(clipBehavior: Clip.none, children: [
-        Positioned(right: -18, top: -26, child: Icon(Icons.favorite_rounded, size: 120, color: Colors.white.withValues(alpha: .09))),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(greet, style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: .85), fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(name, style: const TextStyle(fontSize: 24, height: 30 / 24, letterSpacing: -.5, fontWeight: FontWeight.w800, color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 16),
-          Row(children: [stat(reports, 'Reports'), stat(readings, 'Readings · 7d'), stat(review, 'To review')]),
-        ]),
-      ]),
-    );
   }
 }
 
@@ -371,35 +325,28 @@ class _ReadingsAll extends StatelessWidget {
         )),
       );
     for (final m in people) {
-      final bp = s.latestVital(m.id, VitalType.bp);
-      final sg = s.latestVital(m.id, VitalType.sugar, afterMeal: false);
-      final post = s.latestVital(m.id, VitalType.sugar, afterMeal: true);
-      final weight = s.latestVital(m.id, VitalType.weight);
-      final oxygen = s.latestVital(m.id, VitalType.spo2);
-      if (bp == null && sg == null && post == null && weight == null && oxygen == null) continue;
+      final readings = {
+        for (final metric in ReadingMetric.values)
+          if (s.readingsFor(m.id, metric).lastOrNull case final Vital reading) metric: reading,
+      };
+      if (readings.isEmpty) continue;
       rows.add(Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(children: [
-            MemberAvatar(m, size: 40),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(m.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                // One line per reading, each with its own time — BP and sugar
-                // are often logged on different days.
-                if (bp != null) line('BP ${bp.a.round()}/${bp.b.round()}', bp),
-                if (sg != null) line('Fasting glucose ${sg.a.round()}', sg),
-                if (post != null) line('Post-meal glucose ${post.a.round()}', post),
-                if (weight != null) line('Weight ${weight.a.toStringAsFixed(2)} kg', weight),
-                if (oxygen != null) line('SpO2 ${oxygen.a.round()}%', oxygen),
-              ]),
-            ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            MemberAvatar(m, size: 30),
+            const SizedBox(width: 8),
+            Expanded(child: Text(m.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
           ]),
+          const SizedBox(height: 8),
+          for (final entry in readings.entries)
+            line('${entry.key.label} ${entry.key.format(entry.value)} ${entry.key.unit}', entry.value),
+        ]),
       ));
       rows.add(const Divider1());
     }
     if (rows.isEmpty) {
-      return SurfaceCard(child: Text('No readings yet. Tap “+ Log” to add one.', style: TextStyle(fontSize: 15, color: c.textSecondary)));
+      return SurfaceCard(child: Text('No readings yet. Use Log reading to add one.', style: TextStyle(fontSize: 15, color: c.textSecondary)));
     }
     rows.removeLast();
     return SurfaceCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: rows));

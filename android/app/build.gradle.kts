@@ -9,6 +9,14 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    // Some dependencies ship native libraries for every CPU even when Flutter
+    // builds a single target. Exclude those extra libraries from standalone APKs.
+    providers.environmentVariable("FAMILY_HEALTH_APK_ABI").orNull?.takeIf { it.isNotBlank() }?.let { abi ->
+        packaging.jniLibs.excludes.addAll(
+            listOf("arm64-v8a", "armeabi-v7a", "x86_64").filter { it != abi }.map { "lib/$it/**" }
+        )
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

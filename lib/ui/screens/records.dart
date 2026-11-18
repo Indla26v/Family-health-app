@@ -105,7 +105,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   Widget _filter<T>(BuildContext context, String label, T? value, List<(T?, String)> options, ValueChanged<T?> onPick) {
     final c = context.c;
     final active = value != null;
-    final shown = active ? options.firstWhere((o) => o.$1 == value).$2 : label;
+    final shown = active ? (options.where((o) => o.$1 == value).firstOrNull?.$2 ?? label) : label;
     return PopupMenuButton<int>(
       tooltip: 'Filter by $label',
       offset: const Offset(0, 48),
@@ -166,18 +166,44 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: [
-                    if (people.length > 1) ...[
-                      _filter<String>(context, 'Member', member, [(null, 'Everyone'), for (final m in people) (m.id, m.name)], (v) => setState(() => member = v)),
-                      const SizedBox(width: 8),
-                    ],
-                    _filter<int>(context, 'Year', year, [(null, 'All years'), for (final y in years) (y, '$y')], (v) => setState(() => year = v)),
-                    const SizedBox(width: 8),
-                    _filter<DocKind>(context, 'Type', type, [(null, 'All types'), (DocKind.lab, 'Lab report'), (DocKind.prescription, 'Prescription'), (DocKind.other, 'Other')], (v) => setState(() => type = v)),
-                  ]),
-                ),
+                Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.tune_rounded),
+                    label: const Text('Filters'),
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      showDragHandle: true,
+                      builder: (sheetContext) => SafeArea(
+                        child: StatefulBuilder(builder: (context, refreshFilters) {
+                          void update(VoidCallback change) {
+                            setState(change);
+                            refreshFilters(() {});
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              const Text('Filters', style: AppText.title),
+                              const SizedBox(height: 8),
+                              Wrap(spacing: 8, runSpacing: 8, children: [
+                                if (people.length > 1)
+                                  _filter<String>(context, 'Member', member, [(null, 'Everyone'), for (final m in people) (m.id, m.name)], (v) => update(() => member = v)),
+                                _filter<int>(context, 'Year', year, [(null, 'All years'), for (final y in years) (y, '$y')], (v) => update(() => year = v)),
+                                _filter<DocKind>(context, 'Type', type, [(null, 'All types'), (DocKind.lab, 'Lab report'), (DocKind.prescription, 'Prescription'), (DocKind.other, 'Other')], (v) => update(() => type = v)),
+                              ]),
+                              const SizedBox(height: 16),
+                              BigButton(label: 'Done', onTap: () => Navigator.pop(sheetContext)),
+                            ]),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                  if (member != null) InputChip(label: Text(s.member(member)?.name ?? 'Member'), onDeleted: () => setState(() => member = null)),
+                  if (year != null) InputChip(label: Text('$year'), onDeleted: () => setState(() => year = null)),
+                  if (type != null) InputChip(label: Text(switch (type!) {
+                    DocKind.lab => 'Lab report', DocKind.prescription => 'Prescription', DocKind.other => 'Other',
+                  }), onDeleted: () => setState(() => type = null)),
+                ]),
                 const SizedBox(height: 12),
                 if (jobOpen) ...[
                   BannerCard(icon: Icons.sync_rounded, tone: 'info', text: 'Importing ${job.byYear.keys.reduce((a, b) => a < b ? a : b)}–${job.byYear.keys.reduce((a, b) => a > b ? a : b)} · ${job.done} of ${job.total}', onTap: () => pushPage(context, const BulkImportScreen())),

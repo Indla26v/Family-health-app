@@ -27,6 +27,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "family_health/update")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "supportedAbis") result.success(Build.SUPPORTED_ABIS.toList())
+                else result.notImplemented()
+            }
         shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "family_health/share").also {
             it.setMethodCallHandler { call, result ->
                 if (call.method == "takeShared") {

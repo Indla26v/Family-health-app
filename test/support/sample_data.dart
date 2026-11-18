@@ -141,9 +141,9 @@ void seedDemoData(AppStore s) {
 
   // ---- Vitals ----------------------------------------------------------------
   void bp(String member, DateTime at, double sys, double dia, double pulse) =>
-      s.vitals.add(Vital(id: id('v'), memberId: member, type: VitalType.bp, at: at, a: sys, b: dia, pulse: pulse));
+      s.putSyncedVital(Vital(id: id('v'), memberId: member, type: VitalType.bp, at: at, a: sys, b: dia, pulse: pulse));
   void sugar(String member, DateTime at, double v, bool after) =>
-      s.vitals.add(Vital(id: id('v'), memberId: member, type: VitalType.sugar, at: at, a: v, afterMeal: after));
+      s.putSyncedVital(Vital(id: id('v'), memberId: member, type: VitalType.sugar, at: at, a: v, afterMeal: after));
   DateTime at(DateTime d, int h, int m) => DateTime(d.year, d.month, d.day, h, m);
   DateTime morning(int daysAgo, int h, int m) {
     final d = today.subtract(Duration(days: daysAgo));
@@ -170,11 +170,11 @@ void seedDemoData(AppStore s) {
   }
   for (var w = 12; w >= 0; w--) {
     final d = today.subtract(Duration(days: w * 7 + 2));
-    s.vitals.add(Vital(id: id('v'), memberId: 'father', type: VitalType.weight, at: at(d, 7, 15), a: 84 + w * 0.12 + (rng.nextInt(5) - 2) * 0.1));
-    s.vitals.add(Vital(id: id('v'), memberId: 'mother', type: VitalType.weight, at: at(d, 7, 20), a: 66 + (rng.nextInt(5) - 2) * 0.1));
+    s.putSyncedVital(Vital(id: id('v'), memberId: 'father', type: VitalType.weight, at: at(d, 7, 15), a: 84 + w * 0.12 + (rng.nextInt(5) - 2) * 0.1));
+    s.putSyncedVital(Vital(id: id('v'), memberId: 'mother', type: VitalType.weight, at: at(d, 7, 20), a: 66 + (rng.nextInt(5) - 2) * 0.1));
   }
-  s.vitals.removeWhere((v) => v.type == VitalType.weight && v.memberId == 'father' && v.at.isAfter(today.subtract(const Duration(days: 2))));
-  s.vitals.add(Vital(id: id('v'), memberId: 'father', type: VitalType.weight, at: at(today.subtract(const Duration(days: 2)), 7, 15), a: 84));
+  s.removeVitalsWhere((v) => v.type == VitalType.weight && v.memberId == 'father' && v.at.isAfter(today.subtract(const Duration(days: 2))));
+  s.putSyncedVital(Vital(id: id('v'), memberId: 'father', type: VitalType.weight, at: at(today.subtract(const Duration(days: 2)), 7, 15), a: 84));
 
   // ---- Appointments ------------------------------------------------------------
   final latestVij = s.docs.firstWhere((d) => d.lab == _vij && d.date == DateTime(2026, 9, 12));

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:family_health/core/strings.dart';
 import 'package:family_health/core/theme.dart';
 import 'package:family_health/data/models.dart';
 import 'package:family_health/data/store.dart';
@@ -10,6 +11,7 @@ import 'package:family_health/ui/screens/log_reading.dart';
 import 'package:family_health/ui/screens/reading_history.dart';
 import 'package:family_health/ui/screens/test_trend.dart';
 import 'package:family_health/ui/screens/today.dart';
+import 'package:family_health/ui/screens/weight_trend.dart';
 import 'package:family_health/ui/widgets/charts.dart';
 import 'package:family_health/ui/widgets/common.dart';
 import 'package:family_health/ui/widgets/trend_card.dart';
@@ -65,6 +67,7 @@ void main() {
     double width = 430,
     double height = 1100,
     double scale = 1,
+    Brightness brightness = Brightness.light,
   }) async {
     t.view.physicalSize = Size(width, height);
     t.view.devicePixelRatio = 1;
@@ -73,7 +76,7 @@ void main() {
       ChangeNotifierProvider<AppStore>.value(
         value: store,
         child: MaterialApp(
-          theme: buildTheme(Brightness.light),
+          theme: buildTheme(brightness),
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(
               context,
@@ -94,6 +97,102 @@ void main() {
     store.dispose();
   });
 
+  testWidgets('Today, Health and logging fit narrow screens with larger Telugu text in dark mode', (t) async {
+    store.addVital(sugar('fast', 99));
+    Lang.code = 'te';
+    addTearDown(() => Lang.code = 'en');
+    for (final page in [const TodayScreen(), const HealthScreen(), const LogReadingScreen()]) {
+      await mount(t, page, width: 320, height: 700, scale: 1.4, brightness: Brightness.dark);
+      expect(t.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
+    'Health plots a single weight reading and opens a zoomable graph',
+    (t) async {
+      store.addVital(
+        Vital(
+          id: 'weight',
+          memberId: 'son',
+          type: VitalType.weight,
+          at: DateTime(2026, 11, 14),
+          a: 72.5,
+        ),
+      );
+      await mount(t, const HealthScreen());
+      expect(find.byType(SmoothTrend), findsOneWidget);
+      await t.tap(find.text('Weight'));
+      await t.pumpAndSettle();
+      expect(find.byType(WeightTrendScreen), findsOneWidget);
+      expect(
+        t
+            .widget<TrendChart>(find.byType(TrendChart))
+            .series
+            .single
+            .points
+            .single
+            .value,
+        72.5,
+      );
+
+      final plot = find.descendant(
+        of: find.byType(TrendChart),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is CustomPaint &&
+              widget.painter?.runtimeType.toString() == '_ChartPainter',
+        ),
+      );
+      (double, double, double, double) bounds() {
+        final dynamic geo =
+            (t.widget<CustomPaint>(plot).painter as dynamic).geo;
+        return (
+          geo.xMin as double,
+          geo.xMax as double,
+          geo.yMin as double,
+          geo.yMax as double,
+        );
+      }
+
+      final full = bounds();
+      await t.tap(find.byTooltip('Zoom in'));
+      await t.pumpAndSettle();
+      final zoomed = bounds();
+      expect(zoomed.$2 - zoomed.$1, lessThan(full.$2 - full.$1));
+      expect(zoomed.$4 - zoomed.$3, lessThan(full.$4 - full.$3));
+      await t.dragFrom(t.getCenter(plot), const Offset(-70, 0));
+      await t.pumpAndSettle();
+      final horizontal = bounds();
+      expect(horizontal.$1, greaterThan(zoomed.$1));
+      await t.dragFrom(t.getCenter(plot), const Offset(0, -70));
+      await t.pumpAndSettle();
+      expect(bounds().$3, lessThan(horizontal.$3));
+      await t.tap(find.text('Reset view'));
+      await t.pumpAndSettle();
+      expect(bounds(), full);
+
+      final middle = t.getCenter(plot);
+      final left = await t.startGesture(
+        middle - const Offset(25, 0),
+        pointer: 1,
+      );
+      final right = await t.startGesture(
+        middle + const Offset(25, 0),
+        pointer: 2,
+      );
+      for (final distance in [40.0, 55.0, 75.0]) {
+        await left.moveTo(middle - Offset(distance, 0));
+        await right.moveTo(middle + Offset(distance, 0));
+        await t.pump();
+      }
+      await left.up();
+      await right.up();
+      await t.pumpAndSettle();
+      final pinched = bounds();
+      expect(pinched.$2 - pinched.$1, lessThan(full.$2 - full.$1));
+    },
+  );
+
   for (final everyone in [false, true]) {
     testWidgets(
       'Today ${everyone ? 'everyone rows' : 'member cards'} open BP, fasting and post-meal graphs separately',
@@ -113,10 +212,10 @@ void main() {
         );
         await mount(t, const TodayScreen(), height: 1400);
         for (final (label, key, value) in [
-          (everyone ? 'BP 120/80' : 'Blood pressure', 'bp', 120.0),
-          (everyone ? 'Fasting glucose 99' : 'Fasting sugar', 'fbs', 99.0),
+          (everyone ? 'Blood pressure 120/80 mmHg' : 'Blood pressure', 'bp', 120.0),
+          (everyone ? 'Fasting glucose 99 mg/dL' : 'Fasting glucose', 'fbs', 99.0),
           (
-            everyone ? 'Post-meal glucose 145' : 'Sugar after meal',
+            everyone ? 'Post-meal glucose 145 mg/dL' : 'Post-meal glucose',
             'ppbs',
             145.0,
           ),
@@ -246,11 +345,11 @@ void main() {
       final cards = t.widgetList<TrendCard>(find.byType(TrendCard)).toList();
       expect(
         cards.map((c) => c.title),
-        containsAll(['Fasting glucose (FBS)', 'Post-prandial glucose (PPBS)']),
+        containsAll(['Fasting glucose', 'Post-meal glucose']),
       );
       expect(
         cards
-            .firstWhere((c) => c.title == 'Fasting glucose (FBS)')
+            .firstWhere((c) => c.title == 'Fasting glucose')
             .points
             .last
             .value,
@@ -258,7 +357,7 @@ void main() {
       );
       expect(
         cards
-            .firstWhere((c) => c.title == 'Post-prandial glucose (PPBS)')
+            .firstWhere((c) => c.title == 'Post-meal glucose')
             .points
             .last
             .value,
@@ -387,7 +486,7 @@ void main() {
       await t.pumpAndSettle();
       final filtered = t.widgetList<TrendCard>(find.byType(TrendCard)).toList();
       expect(filtered, hasLength(1));
-      expect(filtered.single.title, 'Fasting glucose (FBS)');
+      expect(filtered.single.title, 'Fasting glucose');
       expect(filtered.single.points.single.date.year, 2024);
       expect(t.takeException(), isNull);
     },

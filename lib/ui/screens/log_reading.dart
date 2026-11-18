@@ -93,6 +93,16 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
     });
   }
 
+  Future<void> _pickDate() async {
+    final day = await showDatePicker(context: context, initialDate: at,
+      firstDate: DateTime(1900), lastDate: DateTime.now());
+    if (day == null || !mounted) return;
+    setState(() {
+      at = DateTime(day.year, day.month, day.day, at.hour, at.minute);
+      saved = false;
+    });
+  }
+
   Future<void> _pickTime() async {
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(at));
     if (t != null && mounted) {
@@ -107,6 +117,10 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
     final s = readStore(context);
     final (st, bad) = _status();
     if (st == null || bad) return;
+    if (at.isAfter(DateTime.now().add(const Duration(minutes: 5)))) {
+      toast(context, 'Check the date and time');
+      return;
+    }
     final id = s.newId('v');
     s.addVital(Vital(
       id: id,
@@ -147,46 +161,32 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
         child: Column(children: [
           ScreenHeader(
             title: tr('Log reading'),
-            subtitle: 'Today · ${fmtDay(DateTime.now())}',
+            subtitle: member?.name,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              RoundIconButton(icon: Icons.history_rounded, label: 'Reading history', onTap: () => pushPage(context, ReadingHistoryScreen(memberId: memberId, type: mode))),
+              RoundIconButton(icon: Icons.history_rounded, label: 'Reading history', onTap: () => pushPage(context, ReadingHistoryScreen(memberId: memberId, type: mode, afterMeal: mode == VitalType.sugar ? afterMeal : null))),
               RoundIconButton(icon: Icons.close_rounded, label: 'Close', onTap: () => Navigator.of(context).maybePop()),
             ]),
           ),
           Expanded(
             child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 16), children: [
-              Row(children: [
-                if (people.length > 1)
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: ListView(scrollDirection: Axis.horizontal, children: [
-                        for (final m in people)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(999),
-                              onTap: () => setState(() {
-                                memberId = m.id;
-                                saved = false;
-                              }),
-                              child: Container(
-                                padding: const EdgeInsets.fromLTRB(6, 4, 14, 4),
-                                decoration: BoxDecoration(color: m.id == memberId ? c.accentTint : c.surface, borderRadius: BorderRadius.circular(999), border: Border.all(color: m.id == memberId ? c.accent : c.border)),
-                                child: Row(children: [MemberAvatar(m, size: 34), const SizedBox(width: 8), Text(m.name, style: TextStyle(fontSize: 15, fontWeight: m.id == memberId ? FontWeight.w700 : FontWeight.w500))]),
-                              ),
-                            ),
-                          ),
-                      ]),
-                    ),
-                  )
-                else
-                  Expanded(child: Row(children: [MemberAvatar(member, size: 36), const SizedBox(width: 10), Text(member?.name ?? '', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))])),
+              if (people.length > 1)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MemberPicker(members: people, selectedId: memberId, onSelect: (id) => setState(() {
+                    memberId = id;
+                    saved = false;
+                  })),
+                ),
+              Wrap(spacing: 8, children: [
+                TextButton.icon(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                  label: Text(DateUtils.isSameDay(at, DateTime.now()) ? 'Today' : fmtDate(at)),
+                ),
                 TextButton.icon(
                   onPressed: _pickTime,
                   icon: const Icon(Icons.schedule_rounded, size: 20),
-                  label: Text(DateUtils.isSameDay(at, DateTime.now()) && at.difference(DateTime.now()).inMinutes.abs() < 2 ? 'Now, ${fmtTime(at)}' : fmtTime(at), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                  style: TextButton.styleFrom(minimumSize: const Size(48, 48), foregroundColor: c.textSecondary),
+                  label: Text(fmtTime(at)),
                 ),
               ]),
               const SizedBox(height: 12),

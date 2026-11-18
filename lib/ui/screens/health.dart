@@ -9,12 +9,12 @@ import '../../data/card_order.dart';
 import '../../data/catalog.dart';
 import '../../data/health_reading.dart';
 import '../../data/models.dart';
+import '../../data/reading_metric.dart';
 import '../../data/store.dart';
 import '../widgets/common.dart';
 import '../widgets/motion.dart';
 import '../widgets/trend_card.dart';
 import 'arrange_cards.dart';
-import 'bp_detail.dart';
 import 'diabetes_detail.dart';
 import 'log_reading.dart';
 import 'reading_history.dart';
@@ -62,7 +62,11 @@ class _HealthScreenState extends State<HealthScreen> {
     }.toList()..sort((a, b) => b - a)).map((y) => '$y').toList();
     final key = period == '1y' || years.contains(period) ? period : 'all';
     final from = Span.of(key);
-    final conds = byUserOrder(m.conditions.map(conditionById), (c) => 'cond:${c.id}', (c) => c.en, s.prefs.healthOrder);
+    final conds = byUserOrder(m.conditions.where((id) => id != 'bp').map(conditionById), (c) => 'cond:${c.id}', (c) => c.en, s.prefs.healthOrder);
+    final readings = {
+      for (final metric in ReadingMetric.values)
+        metric: s.readingsFor(m.id, metric).where((row) => from.has(row.at)).toList(),
+    };
     final checks = s.checkupsOf(m.id);
 
     return Column(children: [
@@ -82,17 +86,24 @@ class _HealthScreenState extends State<HealthScreen> {
               ]),
             ),
           _PeriodSwitch(options: [('all', 'All time'), ('1y', 'Last 12 months'), for (final y in years) (y, y)], value: key, onChanged: (v) => setState(() => period = v)),
-          const SizedBox(height: 4),
-          if (conds.isNotEmpty) CardColumn(children: [for (final cd in conds) _ConditionCard(store: s, member: m, def: cd, from: from)]),
-          if (s.vitals.any((v) => v.memberId == m.id && from.has(v.at) && v.type != VitalType.sugar && (v.type != VitalType.bp || !m.conditions.contains('bp')))) ...[
-            const SectionTitle('Home readings'),
+          const SizedBox(height: 16),
+          const SectionTitle('Home readings'),
+          const SizedBox(height: 8),
+          if (readings.values.every((rows) => rows.isEmpty))
+            SurfaceCard(child: Text(from.isAll ? 'No home readings yet.' : 'No home readings in this period.'))
+          else
             CardColumn(children: [
-              for (final type in [VitalType.bp, VitalType.weight, VitalType.spo2])
-                if ((type != VitalType.bp || !m.conditions.contains('bp')) && s.vitalsOf(m.id, type).any((v) => from.has(v.at)))
-                  vitalTrendCard(context, s, m, type, from),
+              for (final entry in readings.entries)
+                if (entry.value.isNotEmpty) vitalTrendCard(context, m, entry.key, entry.value),
             ]),
+          if (conds.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const SectionTitle('Conditions'),
+            const SizedBox(height: 8),
+            CardColumn(children: [for (final cd in conds) _ConditionCard(store: s, member: m, def: cd, from: from)]),
           ],
-          _AllTests(store: s, member: m, from: from, skip: {for (final cd in conds) if (cd.keyTest != null && s.resultsOf(m.id, cd.keyTest!).isNotEmpty) cd.keyTest!}),
+          const SizedBox(height: 16),
+          _AllTests(store: s, member: m, from: from, skip: {for (final cd in conds) if (cd.id != 'diabetes' && cd.keyTest != null && s.resultsOf(m.id, cd.keyTest!).isNotEmpty) cd.keyTest!}),
           if (kCheckupsEnabled) ...[
           const SizedBox(height: 4),
           const SectionTitle('Check-ups'),
@@ -171,8 +182,6 @@ class _ConditionCard extends StatelessWidget {
     switch (def.id) {
       case 'diabetes':
         pushPage(context, DiabetesDetailScreen(memberId: member.id));
-      case 'bp':
-        pushPage(context, BpDetailScreen(memberId: member.id));
       default:
         if (def.keyTest != null && store.latestResult(member.id, def.keyTest!) != null) {
           pushPage(context, TestTrendScreen(memberId: member.id, testKey: def.keyTest!));
@@ -208,30 +217,12 @@ class _ConditionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = tr(def.en);
-    if (def.id == 'bp') {
-      final all = store.vitalsOf(member.id, VitalType.bp).where((x) => from.has(x.at)).toList();
-      if (all.isEmpty) return _empty(context, title, from.isAll ? 'No readings yet' : 'No readings in this period', 'Log', () => pushPage(context, LogReadingScreen(memberId: member.id)));
-      final v = all.skip(all.length > 20 ? all.length - 20 : 0).toList();
-      final last = v.last;
-      return TrendCard(
-        title: title,
-        icon: def.icon,
-        unit: 'mmHg',
-        status: VitalRanges.ofVital(last),
-        low: 90,
-        high: 130,
-        points: [
-          for (final x in v) TrendPoint(date: x.at, value: x.a, label: '${x.a.round()}/${x.b.round()}', outside: const [Level.high, Level.low].contains(VitalRanges.ofVital(x).level)),
-        ],
-        onTap: () => _open(context),
-      );
+    if (def.id == 'diabetes') {
+      return _empty(context, title, 'Glucose and lab results', 'View', () => _open(context));
     }
     final key = def.keyTest;
     final t = key == null ? null : testByKey(key);
     final r = key == null ? <HealthReading>[] : inPeriod(store.healthReadingsOf(member.id, key), from);
-    if (def.id == 'diabetes' && r.isEmpty && store.vitalsOf(member.id, VitalType.sugar).any((v) => from.has(v.at))) {
-      return _empty(context, title, 'Home glucose readings below', 'View', () => _open(context));
-    }
     if (t == null || r.isEmpty) return _empty(context, title, from.isAll ? def.emptyHint : 'No results in this period', 'Add report', () => pushPage(context, UploadScreen(memberId: member.id)));
     return labTrendCard(context, store, member, t, title: '$title · ${t.key == 'hba1c' ? 'HbA1c' : t.name}', icon: def.icon, from: from, onTap: () => _open(context));
   }
@@ -286,7 +277,7 @@ class _PeriodSwitch extends StatelessWidget {
 /// A lab test as a [TrendCard]: every confirmed result (since [from]), normal range
 /// shaded; tap it for the full history and each result's report.
 Widget labTrendCard(BuildContext context, AppStore store, Member member, TestDef t, {String? title, IconData? icon, VoidCallback? onTap, Span? from}) {
-  final r = inPeriod(store.healthReadingsOf(member.id, t.key), from);
+  final r = inPeriod(store.healthReadingsOf(member.id, t.key).where((row) => !row.isHome).toList(), from);
   bool outside(HealthReading reading) {
     final l = healthReadingStatus(reading, t, member.sex).level;
     return l != Level.normal && l != Level.none;
@@ -305,21 +296,22 @@ Widget labTrendCard(BuildContext context, AppStore store, Member member, TestDef
   );
 }
 
-Widget vitalTrendCard(BuildContext context, AppStore store, Member member, VitalType type, Span span) {
-  final rows = store.vitalsOf(member.id, type).where((v) => span.has(v.at)).toList();
+Widget vitalTrendCard(BuildContext context, Member member, ReadingMetric metric, List<Vital> rows) {
   final last = rows.last;
-  final (title, unit, icon) = switch (type) {
-    VitalType.bp => ('Blood pressure', 'mmHg', Icons.monitor_heart_rounded),
-    VitalType.weight => ('Weight', 'kg', Icons.monitor_weight_rounded),
-    VitalType.spo2 => ('Oxygen (SpO2)', '%', Icons.air_rounded),
-    VitalType.sugar => ('Sugar', 'mg/dL', Icons.water_drop_rounded),
-  };
+  final recent = rows.skip(max(0, rows.length - 20));
   return TrendCard(
-    title: title, unit: unit, icon: icon, status: VitalRanges.ofVital(last),
-    points: [for (final v in rows) TrendPoint(date: v.at, value: v.a,
-      label: type == VitalType.bp ? '${v.a.round()}/${v.b.round()}' : type == VitalType.weight ? v.a.toStringAsFixed(2) : '${v.a.round()}',
-      outside: const [Level.high, Level.low].contains(VitalRanges.ofVital(v).level))],
-    onTap: () => pushPage(context, type == VitalType.bp ? BpDetailScreen(memberId: member.id) : ReadingHistoryScreen(memberId: member.id, type: type)),
+    title: metric.label,
+    unit: metric.unit,
+    icon: metric.icon,
+    status: VitalRanges.ofVital(last),
+    showSinglePoint: true,
+    measurementTime: true,
+    points: [
+      for (final row in recent)
+        TrendPoint(date: row.at, value: row.a, label: metric.format(row),
+          outside: const [Level.high, Level.low].contains(VitalRanges.ofVital(row).level)),
+    ],
+    onTap: () => openReadingTrend(context, member.id, metric.type, afterMeal: metric.afterMeal ?? false),
   );
 }
 
@@ -350,9 +342,10 @@ class _AllTests extends StatelessWidget {
   final Span from;
   @override
   Widget build(BuildContext context) {
-    final mine = store.healthTestKeysOf(member.id).difference(skip);
+    final mine = store.healthTestKeysOf(member.id).difference(skip)
+      ..removeWhere((key) => store.resultsOf(member.id, key).isEmpty);
     List<TestDef> tests(Iterable<String> keys) => byUserOrder(keys.map(testByKey).whereType<TestDef>(), (t) => 'test:${t.key}', (t) => t.name, store.prefs.healthOrder);
-    final shown = tests(mine.where((key) => store.healthReadingsOf(member.id, key).any((r) => from.has(r.date))));
+    final shown = tests(mine.where((key) => store.resultsOf(member.id, key).any((r) => from.has(r.date))));
     final hidden = tests(mine).length - shown.length;
     if (shown.isEmpty && hidden == 0) return const SizedBox();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
