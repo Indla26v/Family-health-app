@@ -59,6 +59,8 @@ void main() {
         116419158,
       );
       expect(UpdateInfo.fromRelease(release([invalid]), ['x86_64']), isNull);
+      final malformed = {...asset('-x86_64'), 'digest': 42};
+      expect(UpdateInfo.fromRelease(release([malformed, asset('')]), ['x86_64'])?.bytes, 116419158);
     },
   );
 

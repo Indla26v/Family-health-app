@@ -115,6 +115,8 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
 
   void _save() {
     final s = readStore(context);
+    final member = s.member(memberId);
+    if (member == null) return;
     final (st, bad) = _status();
     if (st == null || bad) return;
     if (at.isAfter(DateTime.now().add(const Duration(minutes: 5)))) {
@@ -124,7 +126,7 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
     final id = s.newId('v');
     s.addVital(Vital(
       id: id,
-      memberId: memberId!,
+      memberId: member.id,
       type: mode,
       at: at,
       a: mode == VitalType.bp ? _v('sys') : _v(fields.first.$1),
@@ -142,8 +144,9 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
     final s = watchStore(context);
     final c = context.c;
     final people = s.visibleMembers;
-    memberId ??= people.any((m) => m.id == widget.memberId) ? widget.memberId : (people.any((m) => m.id == s.selectedId) ? s.selectedId : people.first.id);
+    memberId ??= widget.memberId ?? s.member(s.selectedId)?.id ?? people.firstOrNull?.id;
     final member = s.member(memberId);
+    if (member == null) return const UnavailableMemberPage(title: 'Log reading');
     final (st, bad) = _status();
     final info = st;
     final note = switch (mode) {
@@ -161,7 +164,7 @@ class _LogReadingScreenState extends State<LogReadingScreen> {
         child: Column(children: [
           ScreenHeader(
             title: tr('Log reading'),
-            subtitle: member?.name,
+            subtitle: member.name,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               RoundIconButton(icon: Icons.history_rounded, label: 'Reading history', onTap: () => pushPage(context, ReadingHistoryScreen(memberId: memberId, type: mode, afterMeal: mode == VitalType.sugar ? afterMeal : null))),
               RoundIconButton(icon: Icons.close_rounded, label: 'Close', onTap: () => Navigator.of(context).maybePop()),

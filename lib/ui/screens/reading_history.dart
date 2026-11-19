@@ -33,10 +33,9 @@ class _ReadingHistoryScreenState extends State<ReadingHistoryScreen> {
     final c = context.c;
     final people = s.visibleMembers;
     memberId ??=
-        s.member(widget.memberId)?.id ??
-        s.member(s.selectedId)?.id ??
-        people.first.id;
-    final m = s.member(memberId)!;
+        widget.memberId ?? s.member(s.selectedId)?.id ?? people.firstOrNull?.id;
+    final m = s.member(memberId);
+    if (m == null) return const UnavailableMemberPage(title: 'Reading history');
     final rows =
         s.vitals
             .where(

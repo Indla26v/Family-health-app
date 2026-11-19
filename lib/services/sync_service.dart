@@ -577,27 +577,41 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
     for (var i = 0; i < changes.length; i += 400) {
       final batch = changes.sublist(i, i + 400 > changes.length ? changes.length : i + 400);
       final res = await api.postJson('/api/v1/sync', {'changes': batch});
+      // A user can edit or delete a row while the request is in flight.
+      track();
       for (final a in (res['applied'] as List? ?? []).cast<Map<String, dynamic>>()) {
-        final k = key(a['table'] as String, a['id'] as String);
+        final table = a['table'] as String, id = a['id'] as String;
+        final k = key(table, id);
         final meta = st.recs[k];
-        if (meta != null && sentAt[k] != null && meta.u == sentAt[k]) {
-          meta
-            ..d = false
-            ..s = true;
+        if (sentAt[k] case final sent?) {
+          if (meta != null) {
+            meta.s = true;
+            if (meta.u == sent) meta.d = false;
+          } else if (!st.tombs.any((t) => t.table == table && t.id == id)) {
+            // A newly created row was removed before we knew it existed online.
+            final row = cur[k]!;
+            st.tombs.add(Tombstone(
+              table: table, id: id, u: DateTime.now().toUtc(), m: row.memberId, p: row.parent,
+            ));
+          }
         }
         st.rejected.remove(k);
-        st.tombs.removeWhere((t) => t.table == a['table'] && t.id == a['id'] && sentTombs.contains(t));
+        st.tombs.removeWhere((t) => t.table == table && t.id == id && sentTombs.contains(t));
       }
       final adopt = <Map<String, dynamic>>[];
       for (final c in (res['conflicts'] as List? ?? []).cast<Map<String, dynamic>>()) {
         final table = c['table'] as String, id = c['id'] as String;
         final k = key(table, id);
         final server = c['server'];
-        final wasDelete = sentTombs.any((t) => t.table == table && t.id == id);
+        final deleted = sentTombs.where((t) => t.table == table && t.id == id).firstOrNull;
+        final meta = st.recs[k];
+        if (deleted == null ? meta?.u != sentAt[k] : meta != null || !st.tombs.contains(deleted)) {
+          continue;
+        }
         st.tombs.removeWhere((t) => t.table == table && t.id == id && sentTombs.contains(t));
         if (server is Map) {
           adopt.add({'table': table, 'op': 'upsert', 'id': id, 'updatedAt': c['updatedAt'] ?? DateTime.now().toUtc().toIso8601String(), 'data': server});
-          if (wasDelete) restore = true;
+          if (deleted != null) restore = true;
         } else {
           // Refused without a server copy (invalid or not allowed): stop retrying it
           // until the next full sync, and keep the reason so Settings can show it.
@@ -632,7 +646,8 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
       }
       st.filesVersion = 1;
     }
-    for (final d in store.docs) {
+    for (final d in List.of(store.docs)) {
+      if (store.doc(d.id) != d) continue;
       final path = d.filePath;
       if (path == null || st.uploadedFiles.contains(d.id)) continue;
       final meta = st.recs[key('documents', d.id)];
@@ -651,8 +666,11 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
         st.uploadedFiles.add(d.id);
         continue;
       }
+      if (store.doc(d.id)?.filePath != path) continue;
       final r = await api.send('PUT', '/api/v1/files/${d.id}', bytes: bytes, headers: {'content-type': mime, 'x-file-name': path.split(RegExp(r'[\\/]')).last});
-      if (r.statusCode < 300 || r.statusCode == 400) st.uploadedFiles.add(d.id);
+      if ((r.statusCode < 300 || r.statusCode == 400) && store.doc(d.id)?.filePath == path) {
+        st.uploadedFiles.add(d.id);
+      }
     }
   }
 

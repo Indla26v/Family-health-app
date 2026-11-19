@@ -70,6 +70,7 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final s = context.read<AppStore>();
     if (state == AppLifecycleState.paused) {
+      s.flushPendingSave();
       _pausedAt = DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
       if (s.prefs.lockEnabled && _pausedAt != null && DateTime.now().difference(_pausedAt!) > const Duration(minutes: 1)) {

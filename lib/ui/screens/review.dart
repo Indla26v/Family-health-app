@@ -16,11 +16,12 @@ import 'today.dart';
 
 /// All documents waiting for review.
 class ReviewListScreen extends StatelessWidget {
-  const ReviewListScreen({super.key});
+  const ReviewListScreen({super.key, this.memberId});
+  final String? memberId;
   @override
   Widget build(BuildContext context) {
     final s = watchStore(context);
-    final docs = s.reviewDocs().where((d) => s.visibleMembers.any((m) => m.id == d.memberId)).toList();
+    final docs = s.reviewDocs(memberId).where((d) => s.visibleMembers.any((m) => m.id == d.memberId)).toList();
     return PageBody(
       header: const ScreenHeader(title: 'Needs review', back: true),
       children: [

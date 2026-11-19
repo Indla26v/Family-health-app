@@ -293,6 +293,7 @@ class Prefs {
     this.lockEnabled = false,
     this.pinHash,
     this.darkMode = 'system',
+    this.chartStyle = 'line',
     this.deviceUserId = '',
     this.serverHost = '',
     this.lastBackup,
@@ -301,7 +302,7 @@ class Prefs {
     List<String>? healthOrder,
     this.healthOrderDirty = false,
   }) : healthOrder = healthOrder ?? [];
-  String lang, darkMode, serverHost, deviceUserId;
+  String lang, darkMode, chartStyle, serverHost, deviceUserId;
 
   /// This user's order of the Health cards (`cond:<id>` / `test:<key>`; the rest
   /// follow A–Z). Kept on the account; [healthOrderDirty] until the server has it.
@@ -319,6 +320,7 @@ class Prefs {
         'pinHash': pinHash, 'darkMode': darkMode, 'deviceUserId': deviceUserId, 'serverHost': serverHost,
         'lastBackup': lastBackup?.toIso8601String(), 'setupDone': setupDone, 'deviceUserAsked': deviceUserAsked,
         'healthOrder': healthOrder, 'healthOrderDirty': healthOrderDirty,
+        'chartStyle': chartStyle,
       };
   factory Prefs.fromJson(Map<String, dynamic> j) => Prefs(
         lang: j['lang'] ?? 'en', largeText: j['largeText'] ?? false, voice: j['voice'] ?? true, alertAdmin: j['alertAdmin'] ?? true,
@@ -326,6 +328,7 @@ class Prefs {
         deviceUserId: j['deviceUserId'] ?? '', serverHost: j['serverHost'] ?? '',
         lastBackup: j['lastBackup'] == null ? null : _d(j['lastBackup']), setupDone: j['setupDone'] ?? false,
         deviceUserAsked: j['deviceUserAsked'] ?? false,
+        chartStyle: j['chartStyle'] is String ? j['chartStyle'] as String : 'line',
         healthOrder: (j['healthOrder'] as List?)?.cast<String>(), healthOrderDirty: j['healthOrderDirty'] ?? false,
       );
 }

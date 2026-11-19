@@ -67,16 +67,18 @@ class _TodayScreenState extends State<TodayScreen> {
     final showDose = due.isNotEmpty ? due.first : (upcoming.isNotEmpty ? upcoming.first : null);
     final missed = [if (kMedicinesEnabled) for (final m in people) ...s.missedToday(m.id)];
     final appts = [if (kAppointmentsEnabled) for (final a in s.upcomingAppts()) if (people.any((m) => m.id == a.memberId)) a];
-    final review = s.reviewDocs().where((d) => people.any((m) => m.id == d.memberId)).length;
-
     final ids = people.map((member) => member.id).toSet();
     final docs = s.docsFor(null).where((doc) => ids.contains(doc.memberId)).toList();
+    final review = docs.where((doc) => doc.status == DocStatus.needsReview).length;
+    final weekAgo = now.subtract(const Duration(days: 7));
+    final readings = s.vitals.where((reading) =>
+        ids.contains(reading.memberId) && !reading.at.isBefore(weekAgo) && !reading.at.isAfter(now)).length;
     final who = sel != null ? s.member(sel)!.name : (single ? visible.first.name : 'Family');
 
     return Column(children: [
       ScreenHeader(
         title: tr('Today'),
-        subtitle: '$who • ${fmtWeekday(now)}, ${fmtDay(now)}',
+        subtitle: '${fmtWeekday(now)}, ${fmtDay(now)}',
         big: true,
         trailing: headerActions(single ? null : MemberPicker(members: visible, selectedId: sel, includeAll: true, onSelect: s.selectMember)),
       ),
@@ -84,17 +86,31 @@ class _TodayScreenState extends State<TodayScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 108),
           children: staggered([
+            _TodaySummary(
+              name: who,
+              hour: now.hour,
+              reports: docs.length,
+              readings: readings,
+              review: review,
+              onReview: review == 0 ? null : () => pushPage(context, ReviewListScreen(memberId: sel)),
+            ),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: _QuickAction(
+                icon: Icons.upload_file_rounded,
+                label: 'Upload report',
+                onTap: () => pushPage(context, UploadScreen(memberId: sel)),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _QuickAction(
+                icon: Icons.monitor_heart_rounded,
+                label: 'Log reading',
+                onTap: () => pushPage(context, LogReadingScreen(memberId: sel)),
+              )),
+            ]),
+            const SizedBox(height: 12),
             if (updates != null && (updates.available != null || updates.stage == UpdateStage.downloading)) ...[
               UpdateBanner(u: updates),
-              const SizedBox(height: 12),
-            ],
-            if (review > 0) ...[
-              BannerCard(
-                icon: Icons.description_rounded,
-                tone: 'warn',
-                text: review == 1 ? '1 report needs review' : '$review reports need review',
-                onTap: () => pushPage(context, const ReviewListScreen()),
-              ),
               const SizedBox(height: 12),
             ],
             if (kMedicinesEnabled && missed.isNotEmpty) ...[
@@ -192,6 +208,75 @@ class _TodayScreenState extends State<TodayScreen> {
       ),
     ]);
   }
+}
+
+class _TodaySummary extends StatelessWidget {
+  const _TodaySummary({required this.name, required this.hour, required this.reports,
+    required this.readings, required this.review, this.onReview});
+  final String name;
+  final int hour, reports, readings, review;
+  final VoidCallback? onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    final greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    Widget stat(int count, String label) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$count', style: const TextStyle(fontSize: 26, height: 1.15, fontWeight: FontWeight.w800, color: Colors.white, fontFeatures: [FontFeature.tabularFigures()])),
+        Text(tr(label), style: const TextStyle(fontSize: 13, color: Colors.white)),
+      ],
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: AppPalette.light.gradient,
+        borderRadius: BorderRadius.circular(kRadiusCard + 4),
+      ),
+      child: Stack(clipBehavior: Clip.none, children: [
+        const Positioned(top: -25, right: -15,
+          child: ExcludeSemantics(child: Icon(Icons.favorite_rounded, size: 120, color: Color(0x1AFFFFFF)))),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(tr(greeting), style: const TextStyle(fontSize: 15, color: Colors.white)),
+          Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white)),
+          const SizedBox(height: 12),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: stat(reports, 'Reports')),
+            const SizedBox(width: 8),
+            Expanded(child: stat(readings, 'Readings · 7d')),
+            const SizedBox(width: 8),
+            Expanded(child: Semantics(
+              button: onReview != null,
+              child: InkWell(
+                onTap: onReview,
+                borderRadius: BorderRadius.circular(8),
+                child: stat(review, 'To review'),
+              ),
+            )),
+          ]),
+        ]),
+      ]),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({required this.icon, required this.label, required this.onTap});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SurfaceCard(
+    onTap: onTap,
+    child: Row(children: [
+      IconBadge(icon, size: 36),
+      const SizedBox(width: 8),
+      Expanded(child: Text(tr(label), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+    ]),
+  );
 }
 
 class _DoseCard extends StatelessWidget {

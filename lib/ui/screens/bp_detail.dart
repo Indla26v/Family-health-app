@@ -19,7 +19,8 @@ class BpDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = watchStore(context);
     final c = context.c;
-    final m = s.member(memberId)!;
+    final m = s.member(memberId);
+    if (m == null) return const UnavailableMemberPage(title: 'Blood pressure');
     final v = s.vitalsOf(m.id, VitalType.bp);
     final last = v.isEmpty ? null : v.last;
 

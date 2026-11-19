@@ -21,12 +21,13 @@ class VitalTrendScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = watchStore(context);
     final member = store.member(memberId);
+    if (member == null) return UnavailableMemberPage(title: metric.label);
     final readings = store.readingsFor(memberId, metric);
     final latest = readings.lastOrNull;
     return PageBody(
       header: ScreenHeader(
         title: metric.label,
-        subtitle: member?.name,
+        subtitle: member.name,
         back: true,
       ),
       bottom: BigButton(
@@ -53,7 +54,7 @@ class VitalTrendScreen extends StatelessWidget {
                     for (final reading in readings)
                       ChartPoint(reading.at, reading.a),
                   ],
-                  member?.color ?? Theme.of(context).colorScheme.primary,
+                  member.color,
                   name: metric.label,
                 ),
               ],

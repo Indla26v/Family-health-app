@@ -108,6 +108,19 @@ void main() {
   });
 
   testWidgets(
+    'an open reading history handles a family member removed by sync',
+    (t) async {
+      store.addVital(sugar('fast', 99));
+      await mount(t, const ReadingHistoryScreen(memberId: 'son'));
+      store.deleteMember('son');
+      await t.pumpAndSettle();
+      expect(find.text('This family member is no longer available'), findsOneWidget);
+      expect(find.text('Fasting glucose 99 mg/dL'), findsNothing);
+      expect(t.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Health plots a single weight reading and opens a zoomable graph',
     (t) async {
       store.addVital(
@@ -190,6 +203,18 @@ void main() {
       await t.pumpAndSettle();
       final pinched = bounds();
       expect(pinched.$2 - pinched.$1, lessThan(full.$2 - full.$1));
+
+      await t.tap(find.text('Bar'));
+      await t.pumpAndSettle();
+      expect(bounds().$3, 0);
+      expect(store.prefs.chartStyle, 'bar');
+      await t.tap(find.text('Points'));
+      await t.pumpAndSettle();
+      expect(bounds(), full);
+      store.saveNow();
+      final reloaded = await AppStore.load();
+      expect(reloaded.prefs.chartStyle, 'points');
+      reloaded.dispose();
     },
   );
 
@@ -211,6 +236,9 @@ void main() {
           ),
         );
         await mount(t, const TodayScreen(), height: 1400);
+        expect(find.text('Readings · 7d'), findsOneWidget);
+        expect(find.text('To review'), findsOneWidget);
+        expect(find.text('Upload report'), findsOneWidget);
         for (final (label, key, value) in [
           ('Blood pressure', 'bp', 120.0),
           ('Fasting glucose', 'fbs', 99.0),

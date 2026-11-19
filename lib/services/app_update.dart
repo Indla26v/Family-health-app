@@ -40,12 +40,15 @@ class UpdateInfo {
     Map<String, dynamic> release,
     List<String> abis,
   ) {
+    final tagName = release['tag_name'];
+    if (tagName is! String) return null;
     final tag = RegExp(
       r'^v?(\d+\.\d+\.\d+)\+(\d+)$',
-    ).firstMatch(release['tag_name'] as String? ?? '');
-    if (tag == null) return null;
-    final assets = (release['assets'] as List? ?? [])
-        .whereType<Map<String, dynamic>>();
+    ).firstMatch(tagName);
+    final build = int.tryParse(tag?.group(2) ?? '');
+    final rawAssets = release['assets'];
+    if (tag == null || build == null || build < 1 || rawAssets is! List) return null;
+    final assets = rawAssets.whereType<Map<String, dynamic>>();
     final names = [
       for (final abi in abis)
         if (const ['arm64-v8a', 'armeabi-v7a', 'x86_64'].contains(abi))
@@ -55,13 +58,14 @@ class UpdateInfo {
     for (final name in names) {
       for (final asset in assets) {
         if (asset['name'] != name) continue;
-        final url = Uri.tryParse(
-          asset['browser_download_url'] as String? ?? '',
-        );
+        final downloadUrl = asset['browser_download_url'];
+        final rawDigest = asset['digest'];
+        if (downloadUrl is! String || rawDigest is! String) continue;
+        final url = Uri.tryParse(downloadUrl);
         final digest = RegExp(
           r'^sha256:([0-9a-f]{64})$',
           caseSensitive: false,
-        ).firstMatch(asset['digest'] as String? ?? '');
+        ).firstMatch(rawDigest);
         final bytes = asset['size'];
         if (url == null ||
             url.scheme != 'https' ||
@@ -73,9 +77,9 @@ class UpdateInfo {
         }
         return UpdateInfo(
           versionName: tag.group(1)!,
-          buildNumber: int.parse(tag.group(2)!),
+          buildNumber: build,
           apkUrl: url.toString(),
-          notes: (release['body'] as String? ?? '').trim(),
+          notes: switch (release['body']) { String text => text.trim(), _ => '' },
           bytes: bytes,
           sha256: digest.group(1)!.toLowerCase(),
         );

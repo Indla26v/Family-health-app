@@ -23,7 +23,8 @@ class TestTrendScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = watchStore(context);
     final c = context.c;
-    final m = s.member(memberId)!;
+    final m = s.member(memberId);
+    if (m == null) return const UnavailableMemberPage(title: 'Test trend');
     final t = testByKey(testKey)!;
     final r = s.healthReadingsOf(m.id, t.key);
     final glucose = t.key == 'fbs' || t.key == 'ppbs';

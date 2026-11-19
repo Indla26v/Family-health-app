@@ -133,6 +133,7 @@ class AppStore extends ChangeNotifier {
 
   void _saveNow() {
     _saveTimer?.cancel();
+    _saveTimer = null;
     try {
       beforeSave?.call();
     } catch (e) {
@@ -144,6 +145,11 @@ class AppStore extends ChangeNotifier {
 
   /// Saves immediately (used by sync before and after talking to the server).
   void saveNow() => _saveNow();
+
+  /// Finish a debounced write before the app moves to the background.
+  void flushPendingSave() {
+    if (_saveTimer != null) _saveNow();
+  }
 
   /// Repaints listeners without saving (sync status changes).
   void refresh() => notifyListeners();

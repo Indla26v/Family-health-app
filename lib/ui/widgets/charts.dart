@@ -3,9 +3,11 @@ import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/strings.dart';
 import '../../core/theme.dart';
+import '../../data/store.dart';
 import 'common.dart';
 
 /// One plotted value, traceable back to its source report.
@@ -84,6 +86,15 @@ DateTime? _cutoff(Period p) {
   };
 }
 
+enum _ChartStyle {
+  line('Line'),
+  bar('Bar'),
+  points('Points');
+
+  const _ChartStyle(this.label);
+  final String label;
+}
+
 /// Line chart with period chips, a shaded reference band, out-of-range points
 /// coloured, and tap-a-point to see value, date, lab and "View report".
 ///
@@ -130,6 +141,7 @@ class TrendChart extends StatefulWidget {
 class _TrendChartState extends State<TrendChart> {
   /// A [Period], or a year (int).
   late Object period = widget.initial;
+  _ChartStyle localStyle = _ChartStyle.line;
   (int, int)? sel; // (series, point)
   /// Where the finger is while sliding; null once let go (the slider then rests on [sel]).
   double? dragX;
@@ -182,6 +194,10 @@ class _TrendChartState extends State<TrendChart> {
 
   @override
   Widget build(BuildContext context) {
+    final savedStyle = context.select<AppStore?, String?>((store) => store?.prefs.chartStyle);
+    final style = savedStyle == null
+        ? localStyle
+        : _ChartStyle.values.where((option) => option.name == savedStyle).firstOrNull ?? _ChartStyle.line;
     final c = context.c;
     final years = widget.cutoffOf != null ? <int>[] : ({for (final s in widget.series) for (final p in s.points) p.date.year}.toList()..sort((a, b) => b - a));
     final p0 = period;
@@ -211,6 +227,24 @@ class _TrendChartState extends State<TrendChart> {
     final multi = same.length > 1;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Semantics(
+        label: 'Chart style',
+        container: true,
+        child: ChoiceChips<_ChartStyle>(
+          options: [for (final option in _ChartStyle.values) (option, tr(option.label))],
+          value: style,
+          onChanged: (choice) {
+            if (choice == style) return;
+            final store = context.read<AppStore?>();
+            setState(() {
+              localStyle = choice;
+              view = _fullView;
+            });
+            store?.setPref((prefs) => prefs.chartStyle = choice.name);
+          },
+        ),
+      ),
+      const SizedBox(height: 8),
       if (widget.showPeriods) ...[
         ChoiceChips<Object>(
           options: [
@@ -234,7 +268,7 @@ class _TrendChartState extends State<TrendChart> {
           label: widget.summary,
           child: LayoutBuilder(builder: (context, box) {
             final bands = [if (widget.band != null) widget.band!, ...widget.moreBands];
-            final geo = _Geo(series, bands, widget.targetLine, Size(box.maxWidth, widget.height), view);
+            final geo = _Geo(series, bands, widget.targetLine, Size(box.maxWidth, widget.height), view, style);
             final order = geo.byDate().where((e) => geo.showsDate(series[e.$1].points[e.$2].date)).toList();
             final at = sp == null ? -1 : order.indexWhere((e) => series[e.$1].points[e.$2].date == sp.date);
             void pick((int, int)? hit) {
@@ -369,7 +403,7 @@ class _TrendChartState extends State<TrendChart> {
 }
 
 class _Geo {
-  _Geo(this.series, List<ChartBand> bands, double? target, this.size, Rect view) {
+  _Geo(this.series, List<ChartBand> bands, double? target, this.size, Rect view, this.style) {
     final xs = <double>[], ys = <double>[];
     for (final s in series) {
       for (final p in s.points) {
@@ -387,7 +421,7 @@ class _Geo {
       xmin -= 86400000 * 3;
       xmax += 86400000 * 3;
     }
-    final pad = (xmax - xmin) * .02;
+    final pad = (xmax - xmin) * (style == _ChartStyle.bar ? .055 : .02);
     final xSpan = xmax - xmin + 2 * pad;
     xMin = xmin - pad + view.left * xSpan;
     xMax = xmin - pad + view.right * xSpan;
@@ -399,6 +433,14 @@ class _Geo {
     final span = hi - lo;
     lo -= span * .12;
     hi += span * .16;
+    if (style == _ChartStyle.bar) {
+      lo = min(lo, 0);
+      hi = max(hi, 0);
+      if (ys.every((value) => value >= 0)) lo = 0;
+      if (ys.every((value) => value <= 0) && lo < 0) hi = 0;
+      final visibleDates = xs.where((date) => date >= xMin && date <= xMax).toSet().length;
+      barWidth = min(17, (size.width - left - right) * .8 / (max(1, visibleDates) * series.length));
+    }
     final step = _niceStep((hi - lo) / 4);
     final baseMin = (lo / step).floor() * step;
     final baseMax = (hi / step).ceil() * step;
@@ -408,6 +450,9 @@ class _Geo {
   }
   final List<ChartSeries> series;
   final Size size;
+  final _ChartStyle style;
+  double barWidth = 0;
+  double barOffset(int seriesIndex) => (seriesIndex - (series.length - 1) / 2) * barWidth;
   late final double xMin, xMax, yMin, yMax, yStep;
   static const left = 40.0, right = 12.0, top = 12.0, bottom = 28.0;
 
@@ -424,7 +469,7 @@ class _Geo {
       for (var pi = 0; pi < series[si].points.length; pi++) {
         final p = series[si].points[pi];
         if (!showsDate(p.date)) continue;
-        final dx = (x(p.date) - px).abs();
+        final dx = (x(p.date) + (y == null ? 0 : barOffset(si)) - px).abs();
         final dy = y == null ? 0.0 : (this.y(p.value) - y).abs();
         if (dx < bdx - .5 || (dx < bdx + .5 && dy < bdy)) {
           bdx = dx;
@@ -531,26 +576,45 @@ class _ChartPainter extends CustomPainter {
           ..strokeWidth = 1.5,
       );
     }
-    // series
-    for (final s in geo.series) {
-      if (s.points.isEmpty) continue;
-      final path = Path();
-      for (var i = 0; i < s.points.length; i++) {
-        final o = Offset(geo.x(s.points[i].date), geo.y(s.points[i].value));
-        i == 0 ? path.moveTo(o.dx, o.dy) : path.lineTo(o.dx, o.dy);
+    for (final (seriesIndex, series) in geo.series.indexed) {
+      if (series.points.isEmpty) continue;
+      if (geo.style == _ChartStyle.line) {
+        final path = Path();
+        for (final (index, point) in series.points.indexed) {
+          final x = geo.x(point.date), y = geo.y(point.value);
+          if (index == 0) {
+            path.moveTo(x, y);
+          } else {
+            path.lineTo(x, y);
+          }
+        }
+        canvas.drawPath(path, Paint()..color = series.color..style = PaintingStyle.stroke..strokeWidth = 2.5..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round);
       }
-      canvas.drawPath(path, Paint()..color = s.color..style = PaintingStyle.stroke..strokeWidth = 2.5..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round);
-      final dots = s.points.length <= 40;
-      for (var i = 0; i < s.points.length; i++) {
-        final p = s.points[i];
-        final o = Offset(geo.x(p.date), geo.y(p.value));
-        final isSel = sel != null && geo.series.indexOf(s) == sel!.$1 && sel!.$2 == i;
-        if (!dots && !isSel) continue;
-        final col = p.outside && s.colourOutside ? pal.danger : s.color;
-        canvas.drawCircle(o, isSel ? 8 : 5, Paint()..color = pal.surface);
-        canvas.drawCircle(o, isSel ? 6.5 : 4, Paint()..color = col);
-        // Outside-range points also get a ring so colour is never the only cue.
-        if (p.outside && s.colourOutside) canvas.drawCircle(o, isSel ? 9.5 : 7, Paint()..color = col..style = PaintingStyle.stroke..strokeWidth = 1.5);
+      for (final (index, point) in series.points.indexed) {
+        if (!geo.showsDate(point.date)) continue;
+        final selected = sel == (seriesIndex, index);
+        final outside = point.outside && series.colourOutside;
+        final color = outside ? pal.danger : series.color;
+        final position = Offset(geo.x(point.date), geo.y(point.value));
+        if (geo.style == _ChartStyle.bar) {
+          final center = position.dx + geo.barOffset(seriesIndex);
+          final width = geo.barWidth * .82;
+          final baseline = geo.y(0);
+          final top = position.dy == baseline ? baseline - 2 : min(position.dy, baseline);
+          final height = max(2.0, (baseline - position.dy).abs());
+          final bar = RRect.fromRectAndRadius(Rect.fromLTWH(center - width / 2, top, width, height), const Radius.circular(2));
+          canvas.drawRRect(bar, Paint()..color = color);
+          if (selected || outside) {
+            canvas.drawRRect(bar, Paint()..color = pal.text..style = PaintingStyle.stroke..strokeWidth = 1);
+          }
+          continue;
+        }
+        if (geo.style == _ChartStyle.line && series.points.length > 40 && !selected && !outside) continue;
+        canvas.drawCircle(position, selected ? 8 : 5, Paint()..color = pal.surface);
+        canvas.drawCircle(position, selected ? 6.5 : 4, Paint()..color = color);
+        if (outside) {
+          canvas.drawCircle(position, selected ? 9.5 : 7, Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 1.5);
+        }
       }
     }
     canvas.restore();

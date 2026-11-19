@@ -668,6 +668,20 @@ class ChoiceChips<T> extends StatelessWidget {
   }
 }
 
+/// A synced removal can invalidate a detail route while it is open.
+class UnavailableMemberPage extends StatelessWidget {
+  const UnavailableMemberPage({super.key, required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => PageBody(
+    header: ScreenHeader(title: title, back: true),
+    children: const [
+      EmptyState(icon: Icons.person_off_outlined, message: 'This family member is no longer available'),
+    ],
+  );
+}
+
 /// Scaffold body wrapper: header + scrolling content, honouring safe areas.
 class PageBody extends StatelessWidget {
   const PageBody({super.key, required this.header, required this.children, this.bottom, this.spacing = 12, this.padBottom = 24});

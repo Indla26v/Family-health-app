@@ -83,7 +83,8 @@ class DiabetesDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = watchStore(context);
     final c = context.c;
-    final m = s.member(memberId)!;
+    final m = s.member(memberId);
+    if (m == null) return const UnavailableMemberPage(title: 'Diabetes');
     final hba = testByKey('hba1c')!;
     final r = s.resultsOf(m.id, 'hba1c');
     final last = r.isEmpty ? null : r.last;

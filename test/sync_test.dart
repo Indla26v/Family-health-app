@@ -20,6 +20,7 @@ class FakeServer {
 
   /// Table whose upserts are refused (as the real server does for invalid data).
   String? refuseTable;
+  Future<void> Function()? beforeNextPushReply;
 
   void serverUpsert(String table, String id, Map<String, dynamic> data, DateTime at) {
     rows['$table|$id'] = {'table': table, 'id': id, 'data': data, 'updatedAt': at.toUtc().toIso8601String(), 'rev': ++rev};
@@ -72,6 +73,9 @@ class FakeServer {
         }
         applied.add({'table': c['table'], 'id': c['id']});
       }
+      final callback = beforeNextPushReply;
+      beforeNextPushReply = null;
+      await callback?.call();
       return js({'applied': applied, 'conflicts': conflicts});
     }
     if (path.startsWith('/api/v1/files/')) return js({'error': 'No file stored'}, 404);
@@ -167,6 +171,47 @@ void main() {
     store.saveNow();
     await sync.syncNow();
     expect(store.member(m.id)!.name, 'Server name');
+  });
+
+  test('a rejected push cannot overwrite a newer edit made before the reply', () async {
+    await sync.signIn('https://example.test', 'mom@x.test', 'pw');
+    final m = _member(store, store.newId(), 'Amma');
+    store.addMember(m);
+    await sync.syncNow();
+    await sync.syncNow(); // Advance the pull cursor past the first upload.
+    final key = 'members|${m.id}';
+    final web = server.rows[key]!;
+    server.rows[key] = {
+      ...web, 'data': {...web['data'] as Map, 'name': 'Server name'},
+      'updatedAt': DateTime.now().toUtc().add(const Duration(seconds: 1)).toIso8601String(),
+    };
+    final local = store.member(m.id)!;
+    local.name = 'First edit';
+    store.updateMember(local);
+    server.beforeNextPushReply = () async {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      local.name = 'Last edit';
+      store.updateMember(local);
+    };
+    await sync.syncNow();
+    expect(store.member(m.id)!.name, 'Last edit');
+    expect(store.sync.pendingCount, 1);
+  });
+
+  test('deleting a new reading during its first push also deletes the uploaded row', () async {
+    await sync.signIn('https://example.test', 'mom@x.test', 'pw');
+    final m = _member(store, store.newId(), 'Amma');
+    store.addMember(m);
+    await sync.syncNow();
+    final v = Vital(id: store.newId(), memberId: m.id, type: VitalType.bp, at: DateTime.now(), a: 120, b: 80);
+    store.addVital(v);
+    server.beforeNextPushReply = () async => store.deleteVital(v.id);
+    await sync.syncNow();
+    expect(store.vitals, isEmpty);
+    expect(store.sync.tombs.any((entry) => entry.id == v.id), isTrue);
+    await sync.syncNow();
+    expect(server.rows['vitals|${v.id}'], isNull);
+    expect(store.vitals, isEmpty);
   });
 
   test('a refused record keeps its reason and is sent again on the next full sync', () async {
