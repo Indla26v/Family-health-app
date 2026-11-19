@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
@@ -256,9 +258,8 @@ class LatestReadingsSectionState extends State<LatestReadingsSection>
   });
   String? _selected;
   String? _closing;
-  bool _anchoring = false;
-  bool _userScrolling = false;
-  int _generation = 0;
+  Timer? _settleTimer;
+  double? _dragStart;
 
   String? get _open => widget.people.any((m) => m.id == _selected)
       ? _selected : widget.people.firstOrNull?.id;
@@ -271,67 +272,63 @@ class LatestReadingsSectionState extends State<LatestReadingsSection>
     if (_selected != null && !ids.contains(_selected)) {
       _selected = null;
       _closing = null;
-      _anchoring = false;
-      _generation++;
+      _settleTimer?.cancel();
+      _dragStart = null;
       _animation.stop();
       _animation.value = 1;
     }
   }
 
-  (ScrollPosition, double)? _geometry(String id) {
-    final context = _headers[id]?.currentContext;
-    final box = context?.findRenderObject();
-    if (context == null || box == null || !box.attached) return null;
-    final position = Scrollable.maybeOf(context)?.position;
-    final viewport = RenderAbstractViewport.maybeOf(box);
-    if (position == null || viewport == null || !position.hasContentDimensions) return null;
-    return (position, viewport.getOffsetToReveal(box, 0).offset);
-  }
-
   void handleScroll(ScrollNotification notification) {
     if (notification.depth != 0) return;
     if (notification is ScrollStartNotification) {
-      _userScrolling = notification.dragDetails != null;
+      _settleTimer?.cancel();
+      _dragStart = notification.dragDetails == null ? null : notification.metrics.pixels;
+    } else if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
+      _dragStart ??= notification.metrics.pixels - (notification.scrollDelta ?? 0);
     } else if (notification is ScrollEndNotification) {
-      _userScrolling = false;
-    }
-    if (_anchoring || notification is! ScrollUpdateNotification) return;
-    _userScrolling |= notification.dragDetails != null;
-    if (!_userScrolling) return;
-    final delta = notification.scrollDelta ?? 0;
-    if (delta == 0 || widget.people.length < 2) return;
-    final index = widget.people.indexWhere((m) => m.id == _open);
-    final next = index + (delta > 0 ? 1 : -1);
-    if (next < 0 || next >= widget.people.length) return;
-    final id = widget.people[next].id;
-    final geometry = _geometry(id);
-    if (geometry == null) return;
-    final (position, offset) = geometry;
-    final visibleAt = offset - position.pixels;
-    final line = position.viewportDimension / 2;
-    final crossed = delta > 0
-        ? visibleAt <= line && visibleAt + delta >= line
-        : visibleAt >= line && visibleAt + delta <= line;
-    final reachedEdge = delta > 0
-        ? position.pixels >= position.maxScrollExtent
-        : position.pixels <= position.minScrollExtent;
-    if ((crossed || reachedEdge) && visibleAt >= 0 && visibleAt <= position.viewportDimension - 40) {
-      _anchoring = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _anchoring = false;
-        if (widget.people.any((member) => member.id == id)) _select(id);
-      });
+      final start = _dragStart;
+      _dragStart = null;
+      if (start != null && (notification.metrics.pixels - start).abs() >= 12) {
+        _settleTimer = Timer(const Duration(milliseconds: 160), _openFocusedMember);
+      }
     }
   }
 
+  void _openFocusedMember() {
+    if (!mounted || widget.people.length < 2 || _animation.isAnimating) return;
+    final position = Scrollable.maybeOf(context)?.position;
+    final section = context.findRenderObject();
+    if (position == null || !position.hasContentDimensions ||
+        section is! RenderBox || !section.attached || !section.hasSize) {
+      return;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(section);
+    if (viewport == null || position.extentAfter <= 1) return;
+    final middle = position.viewportDimension / 2;
+    double topOf(RenderBox box) =>
+        viewport.getOffsetToReveal(box, 0).offset - position.pixels;
+    if (topOf(section) + section.size.height <= middle + 24) return;
+
+    String? closest;
+    var distance = (position.viewportDimension * .09).clamp(32.0, 60.0);
+    for (final member in widget.people) {
+      final header = _headers[member.id]?.currentContext?.findRenderObject();
+      if (header is! RenderBox || !header.attached || !header.hasSize) continue;
+      final gap = (topOf(header) + header.size.height / 2 - middle).abs();
+      if (gap < distance) {
+        closest = member.id;
+        distance = gap;
+      }
+    }
+    if (closest != null) _select(closest);
+  }
+
   void _select(String id) {
+    _settleTimer?.cancel();
     final previous = _open;
     if (id == previous) return;
-    final anchor = _geometry(id)?.$2;
     final animate = !reduceMotion(context);
-    final generation = ++_generation;
-    _anchoring = anchor != null;
     _animation.stop();
     setState(() {
       _selected = id;
@@ -342,30 +339,11 @@ class LatestReadingsSectionState extends State<LatestReadingsSection>
     } else {
       _animation.value = 1;
     }
-    if (anchor == null) return;
-
-    var lastOffset = anchor;
-    void keepHeaderPosition(Duration _) {
-      if (!mounted || generation != _generation) return;
-      final geometry = _geometry(id);
-      if (geometry != null) {
-        final (position, offset) = geometry;
-        final correction = offset - lastOffset;
-        lastOffset = offset;
-        final corrected = (position.pixels + correction).clamp(position.minScrollExtent, position.maxScrollExtent);
-        if ((corrected - position.pixels).abs() >= .1) position.jumpTo(corrected);
-      }
-      if (_animation.isAnimating) {
-        WidgetsBinding.instance.addPostFrameCallback(keepHeaderPosition);
-      } else {
-        _anchoring = false;
-      }
-    }
-    WidgetsBinding.instance.addPostFrameCallback(keepHeaderPosition);
   }
 
   @override
   void dispose() {
+    _settleTimer?.cancel();
     _animation.dispose();
     super.dispose();
   }
@@ -452,7 +430,7 @@ class LatestReadingsSectionState extends State<LatestReadingsSection>
                     animation: _animation,
                     child: _body(member),
                     builder: (_, child) {
-                      final progress = kEaseOut.transform(_animation.value);
+                      final progress = Curves.easeInOutCubic.transform(_animation.value);
                       final factor = member.id == _open ? progress : 1 - progress;
                       return ClipRect(
                         child: Align(alignment: Alignment.topCenter, heightFactor: factor, child: child),

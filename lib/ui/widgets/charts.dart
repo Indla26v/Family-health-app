@@ -9,6 +9,7 @@ import '../../core/strings.dart';
 import '../../core/theme.dart';
 import '../../data/store.dart';
 import 'common.dart';
+import 'pill_menu.dart';
 
 /// One plotted value, traceable back to its source report.
 class ChartPoint {
@@ -233,7 +234,7 @@ class _TrendChartState extends State<TrendChart>
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Wrap(spacing: 8, runSpacing: 8, children: [
-        _ChartMenu<_ChartStyle>(
+        PillMenu<_ChartStyle>(
           label: 'Chart style',
           icon: Icons.bar_chart_rounded,
           options: [for (final option in _ChartStyle.values) (option, tr(option.label))],
@@ -249,7 +250,7 @@ class _TrendChartState extends State<TrendChart>
           },
         ),
         if (widget.showPeriods)
-          _ChartMenu<Object>(
+          PillMenu<Object>(
             label: 'Timeline',
             icon: Icons.calendar_today_outlined,
             options: [
@@ -406,50 +407,6 @@ class _TrendChartState extends State<TrendChart>
         ),
       ],
     ]);
-  }
-}
-
-class _ChartMenu<T> extends StatelessWidget {
-  const _ChartMenu({required this.label, required this.icon, required this.options, required this.value, required this.onSelected});
-  final String label;
-  final IconData icon;
-  final List<(T, String)> options;
-  final T value;
-  final ValueChanged<T> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    final current = options.where((entry) => entry.$1 == value).firstOrNull?.$2 ?? options.first.$2;
-    final shape = StadiumBorder(side: BorderSide(color: c.border));
-    return PopupMenuButton<T>(
-      tooltip: label,
-      initialValue: value,
-      onSelected: onSelected,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      itemBuilder: (_) => [
-        for (final (id, text) in options)
-          PopupMenuItem(value: id, child: Text(text)),
-      ],
-      child: Semantics(
-        button: true,
-        label: label,
-        value: current,
-        excludeSemantics: true,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: ShapeDecoration(color: c.surfaceAlt, shape: shape),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 16, color: c.accent),
-            const SizedBox(width: 6),
-            Text(current, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(width: 4),
-            Icon(Icons.expand_more_rounded, size: 19, color: c.textSecondary),
-          ]),
-        ),
-      ),
-    );
   }
 }
 

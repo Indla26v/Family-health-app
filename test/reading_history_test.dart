@@ -375,7 +375,7 @@ void main() {
     (t) async {
       await mount(t, const HealthScreen());
       for (final (value, after) in [('99', false), ('145', true)]) {
-        await t.tap(find.text('Log reading'));
+        await t.tap(find.byTooltip('Log reading'));
         await t.pumpAndSettle();
         await t.tap(find.text('Sugar'));
         await t.pumpAndSettle();
@@ -532,7 +532,8 @@ void main() {
         cards.map((c) => c.title),
         containsAll(['Blood pressure', 'Weight', 'Oxygen (SpO2)']),
       );
-      await t.ensureVisible(find.text('2024'));
+      expect(find.text('2024'), findsNothing);
+      await t.tap(find.byTooltip('Time period'));
       await t.pumpAndSettle();
       await t.tap(find.text('2024'));
       await t.pumpAndSettle();
@@ -545,7 +546,7 @@ void main() {
   );
 
   testWidgets(
-    'Today hands off the expanded member as adjacent headers pass mid-screen',
+    'Today switches members only after scrolling settles near a header',
     (t) async {
       store.selectedId = null;
       for (final id in ['father', 'mother']) {
@@ -562,20 +563,34 @@ void main() {
       );
       bool expanded(String name) =>
           t.widget<Semantics>(header(name)).properties.expanded!;
-      Future<void> scrollPast(String name, double direction) async {
+      final position = t.state<ScrollableState>(find.byType(Scrollable)).position;
+      Future<void> settleOn(String name, String previous) async {
         final middle = t.getCenter(list).dy;
-        final offset = t.getTopLeft(header(name)).dy - middle;
-        await t.drag(list, Offset(0, -offset - direction * 28));
+        final offset = t.getCenter(header(name)).dy - middle;
+        final gesture = await t.startGesture(t.getCenter(list));
+        final initialMove = -offset.sign * 24;
+        await gesture.moveBy(Offset(0, initialMove));
+        await t.pump(const Duration(milliseconds: 40));
+        await gesture.moveBy(Offset(0, -offset - initialMove));
+        await t.pump(const Duration(milliseconds: 200));
+        expect(expanded(previous), isTrue);
+        expect(expanded(name), isFalse);
+        await gesture.up();
         await t.pumpAndSettle();
+        final settledPosition = position.pixels;
+        await t.pump(const Duration(milliseconds: 160));
+        await t.pumpAndSettle();
+        expect(position.pixels, closeTo(settledPosition, 1));
+        expect(expanded(name), isTrue, reason: 'Centered on ${t.getCenter(header(name)).dy} with viewport center $middle at ${position.pixels}');
       }
 
       expect(expanded('Father'), isTrue);
       expect(expanded('Mother'), isFalse);
-      await scrollPast('Mother', 1);
+      await settleOn('Mother', 'Father');
       expect(expanded('Mother'), isTrue);
       expect(expanded('Father'), isFalse);
       expect(find.text('Reading history'), findsOneWidget);
-      await scrollPast('Father', -1);
+      await settleOn('Father', 'Mother');
       expect(expanded('Father'), isTrue);
       expect(expanded('Mother'), isFalse);
       await t.tap(header('Mother'));
@@ -583,6 +598,44 @@ void main() {
       expect(expanded('Mother'), isTrue);
       expect(expanded('Father'), isFalse);
       expect(t.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Today scrolls through all members to Latest reports without a pullback',
+    (t) async {
+      store.selectedId = null;
+      for (final id in ['father', 'mother', 'daughter', 'son']) {
+        store.addVital(sugar('$id-fasting', 99, member: id));
+        store.addVital(sugar('$id-post', 145, member: id, after: true));
+      }
+      await mount(t, const TodayScreen(), width: 360, height: 560);
+      final list = find.byType(ListView);
+      final position = t.state<ScrollableState>(find.byType(Scrollable)).position;
+      final reports = find.text('Latest reports');
+      final history = find.text('Reading history');
+      final openPanel = find.ancestor(
+        of: history,
+        matching: find.byKey(const ValueKey('father')),
+      );
+      expect(openPanel, findsOneWidget);
+
+      final gesture = await t.startGesture(t.getCenter(list));
+      for (var i = 0; i < 7; i++) {
+        final previous = position.pixels;
+        await gesture.moveBy(const Offset(0, -62));
+        await t.pump(const Duration(milliseconds: 70));
+        expect(position.pixels, greaterThanOrEqualTo(previous));
+        expect(openPanel, findsOneWidget);
+      }
+      await gesture.up();
+      await t.pumpAndSettle();
+      final settledPosition = position.pixels;
+      await t.pump(const Duration(milliseconds: 200));
+      await t.pumpAndSettle();
+      expect(reports.hitTestable(), findsOneWidget);
+      expect(openPanel, findsOneWidget);
+      expect(position.pixels, closeTo(settledPosition, 1));
     },
   );
 

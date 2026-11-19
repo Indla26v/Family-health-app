@@ -13,6 +13,7 @@ import '../../data/reading_metric.dart';
 import '../../data/store.dart';
 import '../widgets/common.dart';
 import '../widgets/motion.dart';
+import '../widgets/pill_menu.dart';
 import '../widgets/trend_card.dart';
 import 'arrange_cards.dart';
 import 'diabetes_detail.dart';
@@ -73,10 +74,33 @@ class _HealthScreenState extends State<HealthScreen> {
       ScreenHeader(title: tr('Health'), big: true, trailing: headerActions(MemberPicker(members: people, selectedId: m.id, onSelect: s.selectMember))),
       Expanded(
         child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 108), children: staggered([
-          Wrap(spacing: 16, children: [
-            TextLink('Reading history', icon: Icons.history_rounded, onTap: () => pushPage(context, ReadingHistoryScreen(memberId: m.id))),
-            TextLink('Log reading', icon: Icons.add_rounded, onTap: () => pushPage(context, LogReadingScreen(memberId: m.id))),
-          ]),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              PillMenu<String>(
+                label: 'Time period',
+                icon: Icons.calendar_today_outlined,
+                options: [
+                  ('all', 'All time'),
+                  ('1y', '12 months'),
+                  for (final year in years) (year, year),
+                ],
+                value: key,
+                onSelected: (value) => setState(() => period = value),
+              ),
+              Tooltip(
+                message: 'Reading history',
+                child: TextLink('History', icon: Icons.history_rounded, onTap: () => pushPage(context, ReadingHistoryScreen(memberId: m.id))),
+              ),
+              Tooltip(
+                message: 'Log reading',
+                child: TextLink('Log', icon: Icons.add_rounded, onTap: () => pushPage(context, LogReadingScreen(memberId: m.id))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           if (conds.isEmpty && s.healthTestKeysOf(m.id).isEmpty && !s.vitals.any((v) => v.memberId == m.id))
             SurfaceCard(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -85,8 +109,6 @@ class _HealthScreenState extends State<HealthScreen> {
                 BigButton(label: 'Upload a report', icon: Icons.upload_rounded, onTap: () => pushPage(context, UploadScreen(memberId: m.id))),
               ]),
             ),
-          _PeriodSwitch(options: [('all', 'All time'), ('1y', 'Last 12 months'), for (final y in years) (y, y)], value: key, onChanged: (v) => setState(() => period = v)),
-          const SizedBox(height: 16),
           const SectionTitle('Home readings'),
           const SizedBox(height: 8),
           if (readings.values.every((rows) => rows.isEmpty))
@@ -230,49 +252,6 @@ class _ConditionCard extends StatelessWidget {
 
 /// Results dated inside [span] (all of them when null).
 List<HealthReading> inPeriod(List<HealthReading> r, Span? span) => span == null || span.isAll ? r : r.where((x) => span.has(x.date)).toList();
-
-/// The display period as a row of pills (scrolls sideways when there are many years).
-class _PeriodSwitch extends StatelessWidget {
-  const _PeriodSwitch({required this.options, required this.value, required this.onChanged});
-  final List<(String, String)> options;
-  final String value;
-  final ValueChanged<String> onChanged;
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: c.surfaceAlt, borderRadius: BorderRadius.circular(999)),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          for (final (k, label) in options)
-            Semantics(
-              button: true,
-              selected: k == value,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: () => onChanged(k),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: kEaseOut,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: k == value ? c.surface : Colors.transparent,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: k == value ? [BoxShadow(color: c.shadow, blurRadius: 6, offset: const Offset(0, 2))] : null,
-                  ),
-                  child: Text(label, maxLines: 1, style: TextStyle(fontSize: 13, fontWeight: k == value ? FontWeight.w700 : FontWeight.w500, color: k == value ? c.text : c.textSecondary, fontFeatures: const [FontFeature.tabularFigures()])),
-                ),
-              ),
-            ),
-        ]),
-      ),
-    );
-  }
-}
 
 /// A lab test as a [TrendCard]: every confirmed result (since [from]), normal range
 /// shaded; tap it for the full history and each result's report.
