@@ -82,14 +82,15 @@ class _HomeShellState extends State<HomeShell> {
           excludeSemantics: true,
           child: InkWell(
             onTap: () => setState(() => tab = i),
+            borderRadius: BorderRadius.circular(28),
             splashColor: Colors.transparent,
             highlightColor: Colors.transparent,
             child: Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 4),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               // Large text: shrink to fit the bar instead of overflowing it.
               child: FittedBox(
                 fit: BoxFit.scaleDown,
-                alignment: Alignment.topCenter,
+                alignment: Alignment.center,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -97,26 +98,23 @@ class _HomeShellState extends State<HomeShell> {
                       clipBehavior: Clip.none,
                       alignment: Alignment.center,
                       children: [
-                        AnimatedContainer(
+                        AnimatedScale(
+                          scale: sel ? 1.08 : 1,
                           duration: dur,
-                          curve: kEaseOut,
-                          width: sel ? 60 : 40,
-                          height: 30,
-                          decoration: BoxDecoration(gradient: sel ? c.softGradient : null, color: sel ? null : Colors.transparent, borderRadius: BorderRadius.circular(999)),
-                          child: AnimatedScale(
-                            scale: sel ? 1.08 : 1,
-                            duration: dur,
-                            curve: Curves.easeOutBack,
-                            child: Icon(sel ? on : off, size: 22, color: sel ? c.accent : c.textSecondary),
+                          curve: Curves.easeOutBack,
+                          child: Icon(
+                            sel ? on : off,
+                            size: 22,
+                            color: sel ? c.text : c.textSecondary,
                           ),
                         ),
                         if (badge > 0)
                           Positioned(
-                            top: -6,
-                            right: sel ? -2 : 4,
+                            top: -5,
+                            right: -10,
                             child: Container(
-                              constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                              padding: const EdgeInsets.symmetric(horizontal: 5),
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: c.danger,
@@ -125,17 +123,37 @@ class _HomeShellState extends State<HomeShell> {
                               ),
                               child: Text(
                                 '$badge',
-                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
                               ),
                             ),
                           ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     AnimatedDefaultTextStyle(
                       duration: dur,
-                      style: TextStyle(fontSize: 12, height: 15 / 12, fontWeight: sel ? FontWeight.w700 : FontWeight.w500, color: sel ? c.text : c.textSecondary),
+                      style: TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 11,
+                        height: 1.15,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                        color: sel ? c.text : c.textSecondary,
+                      ),
                       child: Text(tr(label)),
+                    ),
+                    const SizedBox(height: 2),
+                    SizedBox(
+                      height: 4,
+                      child: AnimatedContainer(
+                        duration: dur,
+                        curve: kEaseOut,
+                        width: sel ? 4 : 0,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: c.accent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -148,50 +166,77 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       backgroundColor: c.bg,
+      extendBody: true,
       body: SafeArea(
         bottom: false,
         child: FadeIndexedStack(index: tab, children: pages),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: c.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-          boxShadow: [BoxShadow(color: c.shadow.withValues(alpha: .12), blurRadius: 24, offset: const Offset(0, -6))],
-        ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 64,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                navItem(0, Icons.today_outlined, Icons.today_rounded, 'Today'),
-                navItem(1, Icons.insights_outlined, Icons.insights_rounded, 'Health'),
-                Expanded(
-                  child: Center(
-                    child: Semantics(
-                      button: true,
-                      label: 'Add',
-                      child: Pressable(
-                        scale: .9,
-                        child: Material(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          elevation: 3,
-                          shadowColor: c.accent2.withValues(alpha: .35),
-                          child: Ink(
-                            decoration: BoxDecoration(gradient: c.gradient, borderRadius: BorderRadius.circular(20)),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: _openFab,
-                              child: SizedBox(
-                                width: 52,
-                                height: 52,
-                                child: AnimatedRotation(
-                                  turns: _sheetOpen ? .125 : 0,
-                                  duration: dur,
-                                  curve: kEaseOut,
-                                  child: const Icon(Icons.add_rounded, size: 30, color: Colors.white),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Container(
+            height: 66,
+            decoration: BoxDecoration(
+              color: c.surface,
+              borderRadius: BorderRadius.circular(33),
+              border: Border.all(
+                color: c.border.withValues(alpha: .75),
+                width: 1.0,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: c.shadow.withValues(alpha: .08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+                BoxShadow(
+                  color: c.shadow.withValues(alpha: .18),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(33),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    navItem(0, Icons.today_outlined, Icons.today_rounded, 'Today'),
+                    navItem(1, Icons.insights_outlined, Icons.insights_rounded, 'Health'),
+                    Expanded(
+                      child: Center(
+                        child: Semantics(
+                          button: true,
+                          label: 'Add',
+                          child: Pressable(
+                            scale: .92,
+                            child: Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(25),
+                              elevation: 4,
+                              shadowColor: c.accent2.withValues(alpha: .45),
+                              child: Ink(
+                                decoration: BoxDecoration(
+                                  gradient: c.gradient,
+                                  borderRadius: BorderRadius.circular(25),
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(25),
+                                  onTap: _openFab,
+                                  child: SizedBox(
+                                    width: 50,
+                                    height: 50,
+                                    child: AnimatedRotation(
+                                      turns: _sheetOpen ? .125 : 0,
+                                      duration: dur,
+                                      curve: kEaseOut,
+                                      child: const Icon(Icons.add_rounded, size: 28, color: Colors.white),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -199,11 +244,11 @@ class _HomeShellState extends State<HomeShell> {
                         ),
                       ),
                     ),
-                  ),
+                    navItem(2, Icons.folder_outlined, Icons.folder_rounded, 'Records', badge: review),
+                    navItem(3, Icons.group_outlined, Icons.group_rounded, 'Family'),
+                  ],
                 ),
-                navItem(2, Icons.folder_outlined, Icons.folder_rounded, 'Records', badge: review),
-                navItem(3, Icons.group_outlined, Icons.group_rounded, 'Family'),
-              ],
+              ),
             ),
           ),
         ),

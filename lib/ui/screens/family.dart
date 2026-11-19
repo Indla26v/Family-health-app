@@ -46,7 +46,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
     return Column(children: [
       ScreenHeader(title: tr('Family'), big: true, trailing: const SettingsButton()),
       Expanded(
-        child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 32), children: staggered([
+        child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 108), children: staggered([
           SurfaceCard(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(children: [

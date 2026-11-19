@@ -82,7 +82,7 @@ class _TodayScreenState extends State<TodayScreen> {
       ),
       Expanded(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 32),
+          padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 108),
           children: staggered([
             if (updates != null && (updates.available != null || updates.stage == UpdateStage.downloading)) ...[
               UpdateBanner(u: updates),

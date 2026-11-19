@@ -153,7 +153,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
       Expanded(
         child: all.isEmpty
             ? Center(child: SingleChildScrollView(child: EmptyState(icon: Icons.description_rounded, message: 'Upload your first lab report to see trends', detail: 'PDFs, photos and WhatsApp files work.', buttonLabel: 'Upload report', onButton: () => pushPage(context, const UploadScreen()))))
-            : ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 32), children: staggered([
+            : ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 108), children: staggered([
                 TextField(
                   controller: search,
                   onChanged: (_) => setState(() {}),

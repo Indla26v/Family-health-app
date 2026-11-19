@@ -72,7 +72,7 @@ class _HealthScreenState extends State<HealthScreen> {
     return Column(children: [
       ScreenHeader(title: tr('Health'), big: true, trailing: headerActions(MemberPicker(members: people, selectedId: m.id, onSelect: s.selectMember))),
       Expanded(
-        child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 32), children: staggered([
+        child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 108), children: staggered([
           Wrap(spacing: 16, children: [
             TextLink('Reading history', icon: Icons.history_rounded, onTap: () => pushPage(context, ReadingHistoryScreen(memberId: m.id))),
             TextLink('Log reading', icon: Icons.add_rounded, onTap: () => pushPage(context, LogReadingScreen(memberId: m.id))),
