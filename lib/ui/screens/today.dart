@@ -46,6 +46,7 @@ class TodayScreen extends StatefulWidget {
 }
 
 class _TodayScreenState extends State<TodayScreen> {
+  final _readingsKey = GlobalKey<LatestReadingsSectionState>();
   Dose? _justTaken;
   DateTime? _takenAt;
 
@@ -53,6 +54,8 @@ class _TodayScreenState extends State<TodayScreen> {
   Widget build(BuildContext context) {
     final s = watchStore(context);
     final updates = context.watch<AppUpdateService?>();
+    final updating = updates?.stage == UpdateStage.downloading || updates?.stage == UpdateStage.openingInstaller;
+    final dockInset = MediaQuery.paddingOf(context).bottom;
     final c = context.c;
     final visible = s.visibleMembers;
     final sel = visible.any((m) => m.id == s.selectedId) ? s.selectedId : null;
@@ -75,7 +78,8 @@ class _TodayScreenState extends State<TodayScreen> {
         ids.contains(reading.memberId) && !reading.at.isBefore(weekAgo) && !reading.at.isAfter(now)).length;
     final who = sel != null ? s.member(sel)!.name : (single ? visible.first.name : 'Family');
 
-    return Column(children: [
+    return Stack(children: [
+      Column(children: [
       ScreenHeader(
         title: tr('Today'),
         subtitle: '${fmtWeekday(now)}, ${fmtDay(now)}',
@@ -83,8 +87,13 @@ class _TodayScreenState extends State<TodayScreen> {
         trailing: headerActions(single ? null : MemberPicker(members: visible, selectedId: sel, includeAll: true, onSelect: s.selectMember)),
       ),
       Expanded(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(kSide, 4, kSide, 108),
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            _readingsKey.currentState?.handleScroll(notification);
+            return false;
+          },
+          child: ListView(
+          padding: EdgeInsets.fromLTRB(kSide, 4, kSide, updating ? 200 : 108),
           children: staggered([
             _TodaySummary(
               name: who,
@@ -109,7 +118,7 @@ class _TodayScreenState extends State<TodayScreen> {
               )),
             ]),
             const SizedBox(height: 12),
-            if (updates != null && (updates.available != null || updates.stage == UpdateStage.downloading)) ...[
+            if (updates != null && !updating && updates.available != null) ...[
               UpdateBanner(u: updates),
               const SizedBox(height: 12),
             ],
@@ -160,6 +169,7 @@ class _TodayScreenState extends State<TodayScreen> {
             ],
             // ---- readings
             LatestReadingsSection(
+              key: _readingsKey,
               people: people,
               store: s,
               onTrend: (m, metric) => openReadingTrend(context, m.id, metric.type, afterMeal: metric.afterMeal ?? false),
@@ -204,6 +214,20 @@ class _TodayScreenState extends State<TodayScreen> {
                 ]),
               ),
           ]),
+          ),
+        ),
+      ),
+      ]),
+      Positioned(
+        left: kSide, right: kSide, bottom: dockInset + 8,
+        child: AnimatedSwitcher(
+          duration: reduceMotion(context) ? Duration.zero : const Duration(milliseconds: 220),
+          child: updating && updates != null
+              ? Center(child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: UpdateProgressCard(u: updates),
+                ))
+              : const SizedBox.shrink(),
         ),
       ),
     ]);

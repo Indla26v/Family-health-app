@@ -4,6 +4,7 @@ import '../../core/theme.dart';
 import '../../data/catalog.dart';
 import '../../data/models.dart';
 import '../widgets/common.dart';
+import '../widgets/reading_pages.dart';
 import 'log_reading.dart';
 import 'today.dart';
 
@@ -47,7 +48,10 @@ class _ReadingHistoryScreenState extends State<ReadingHistoryScreen> {
                       v.afterMeal == afterMeal),
             )
             .toList()
-          ..sort((a, b) => b.at.compareTo(a.at));
+          ..sort((a, b) {
+            final time = b.at.compareTo(a.at);
+            return time == 0 ? b.id.compareTo(a.id) : time;
+          });
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -134,92 +138,117 @@ class _ReadingHistoryScreenState extends State<ReadingHistoryScreen> {
                         detail: 'Saved readings will appear here.',
                       ),
                     )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(kSide, 0, kSide, 24),
-                      itemCount: rows.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (context, i) {
-                        final v = rows[i];
-                        final (title, value, unit) = switch (v.type) {
-                          VitalType.bp => (
-                            'Blood pressure',
-                            '${v.a.round()}/${v.b.round()}',
-                            'mmHg',
-                          ),
-                          VitalType.sugar => (
-                            v.afterMeal
-                                ? 'Post-meal glucose'
-                                : 'Fasting glucose',
-                            '${v.a.round()}',
-                            'mg/dL',
-                          ),
-                          VitalType.weight => (
-                            'Weight',
-                            v.a.toStringAsFixed(2),
-                            'kg',
-                          ),
-                          VitalType.spo2 => (
-                            'Oxygen (SpO2)',
-                            '${v.a.round()}',
-                            '%',
-                          ),
-                        };
-                        return SurfaceCard(
-                          key: ValueKey(v.id),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      title,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
+                  : ReadingPages<Vital>(
+                      key: ValueKey((m.id, type, afterMeal)),
+                      rows: rows,
+                      builder: (context, page, controls) => Column(
+                        children: [
+                          Expanded(
+                            child: ListView.separated(
+                              key: ValueKey(('page', page.first.id)),
+                              padding: const EdgeInsets.fromLTRB(
+                                kSide,
+                                0,
+                                kSide,
+                                8,
+                              ),
+                              itemCount: page.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (context, i) {
+                                final v = page[i];
+                                final (title, value, unit) = switch (v.type) {
+                                  VitalType.bp => (
+                                    'Blood pressure',
+                                    '${v.a.round()}/${v.b.round()}',
+                                    'mmHg',
+                                  ),
+                                  VitalType.sugar => (
+                                    v.afterMeal
+                                        ? 'Post-meal glucose'
+                                        : 'Fasting glucose',
+                                    '${v.a.round()}',
+                                    'mg/dL',
+                                  ),
+                                  VitalType.weight => (
+                                    'Weight',
+                                    v.a.toStringAsFixed(2),
+                                    'kg',
+                                  ),
+                                  VitalType.spo2 => (
+                                    'Oxygen (SpO2)',
+                                    '${v.a.round()}',
+                                    '%',
+                                  ),
+                                };
+                                return SurfaceCard(
+                                  key: ValueKey(v.id),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              title,
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Delete reading',
+                                            icon: const Icon(
+                                              Icons.delete_outline_rounded,
+                                            ),
+                                            onPressed: () async {
+                                              final confirmed = await confirmDialog(
+                                                context,
+                                                'Delete reading?',
+                                                '$title: $value $unit on ${fmtDate(v.at)}, ${fmtTime(v.at)}.',
+                                              );
+                                              if (confirmed &&
+                                                  context.mounted) {
+                                                s.deleteVital(v.id);
+                                              }
+                                            },
+                                          ),
+                                        ],
                                       ),
-                                    ),
+                                      Wrap(
+                                        spacing: 12,
+                                        runSpacing: 8,
+                                        crossAxisAlignment:
+                                            WrapCrossAlignment.center,
+                                        children: [
+                                          Text(
+                                            '$value $unit',
+                                            style: AppText.numberLarge,
+                                          ),
+                                          if (v.type != VitalType.weight)
+                                            StatusPill.info(
+                                              VitalRanges.ofVital(v),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${fmtDate(v.at)} · ${fmtTime(v.at)}${v.type == VitalType.bp && v.pulse > 0 ? ' · Pulse ${v.pulse.round()} bpm' : ''}',
+                                        style: TextStyle(
+                                          color: c.textSecondary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  IconButton(
-                                    tooltip: 'Delete reading',
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
-                                    ),
-                                    onPressed: () async {
-                                      final confirmed = await confirmDialog(
-                                        context,
-                                        'Delete reading?',
-                                        '$title: $value $unit on ${fmtDate(v.at)}, ${fmtTime(v.at)}.',
-                                      );
-                                      if (confirmed && context.mounted) {
-                                        s.deleteVital(v.id);
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                              Wrap(
-                                spacing: 12,
-                                runSpacing: 8,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Text(
-                                    '$value $unit',
-                                    style: AppText.numberLarge,
-                                  ),
-                                  if (v.type != VitalType.weight)
-                                    StatusPill.info(VitalRanges.ofVital(v)),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '${fmtDate(v.at)} · ${fmtTime(v.at)}${v.type == VitalType.bp && v.pulse > 0 ? ' · Pulse ${v.pulse.round()} bpm' : ''}',
-                                style: TextStyle(color: c.textSecondary),
-                              ),
-                            ],
+                                );
+                              },
+                            ),
                           ),
-                        );
-                      },
+                          controls,
+                        ],
+                      ),
                     ),
             ),
           ],

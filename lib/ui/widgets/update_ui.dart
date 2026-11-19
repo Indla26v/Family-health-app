@@ -4,57 +4,69 @@ import '../../core/theme.dart';
 import '../../services/app_update.dart';
 import 'common.dart';
 
-/// "Update available" banner used on Today: a download-progress card while
-/// fetching the new APK, otherwise a tap-to-open-details banner (or a
-/// tap-to-retry one if the last download/install failed).
-class UpdateBanner extends StatelessWidget {
-  const UpdateBanner({super.key, required this.u});
+/// Floating Today card for the active download and handoff to Android.
+class UpdateProgressCard extends StatelessWidget {
+  const UpdateProgressCard({super.key, required this.u});
   final AppUpdateService u;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    if (u.stage == UpdateStage.openingInstaller) {
-      return const BannerCard(
-        icon: Icons.system_update_rounded,
-        tone: 'info',
-        text: 'Opening Android installer…',
-      );
-    }
-    if (u.stage == UpdateStage.downloading) {
-      return SurfaceCard(
-        color: c.infoTint,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.download_rounded, size: 22, color: c.info),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Downloading update… ${(u.progress * 100).round()}%',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
+    final downloading = u.stage == UpdateStage.downloading;
+    return SurfaceCard(
+      borderColor: c.accent.withValues(alpha: .35),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              IconBadge(
+                downloading
+                    ? Icons.download_rounded
+                    : Icons.system_update_rounded,
+                size: 36,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  downloading
+                      ? 'Downloading update…'
+                      : 'Opening Android installer…',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ],
-            ),
+              ),
+              if (downloading) Text('${(u.progress * 100).round()}%'),
+            ],
+          ),
+          if (downloading) ...[
             const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
               child: LinearProgressIndicator(
                 value: u.progress > 0 ? u.progress : null,
-                minHeight: 6,
+                minHeight: 5,
+                color: c.accent,
                 backgroundColor: c.border,
-                color: c.info,
+                semanticsLabel: 'Update download progress',
               ),
             ),
           ],
-        ),
-      );
-    }
+        ],
+      ),
+    );
+  }
+}
+
+/// Availability and retry actions on Today.
+class UpdateBanner extends StatelessWidget {
+  const UpdateBanner({super.key, required this.u});
+  final AppUpdateService u;
+  @override
+  Widget build(BuildContext context) {
     final info = u.available;
     if (info == null) return const SizedBox.shrink();
     if (u.stage == UpdateStage.error) {

@@ -5,6 +5,7 @@ import '../../data/catalog.dart';
 import '../../data/models.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
+import '../widgets/reading_pages.dart';
 import 'diabetes_detail.dart';
 import 'log_reading.dart';
 import 'today.dart';
@@ -79,23 +80,29 @@ class BpDetailScreen extends StatelessWidget {
               Text('Shaded: usual range (90–130 / 60–85).', style: TextStyle(fontSize: 14, color: c.textSecondary)),
             ]),
           ),
-          SurfaceCard(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: Column(children: [
-              const Align(alignment: Alignment.centerLeft, child: Text('Recent readings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-              const SizedBox(height: 8),
-              for (final x in v.reversed.take(10)) ...[
-                const Divider1(),
-                SizedBox(
-                  height: 60,
-                  child: Row(children: [
-                    SizedBox(width: 96, child: Text('${x.a.round()}/${x.b.round()}', style: AppText.numberLarge.copyWith(fontSize: 19))),
-                    Expanded(child: Text('${fmtDay(x.at)}, ${fmtTime(x.at)}${x.pulse > 0 ? ' · pulse ${x.pulse.round()}' : ''}', style: TextStyle(fontSize: 14, color: c.textSecondary))),
-                    StatusPill.info(VitalRanges.ofVital(x)),
-                  ]),
-                ),
-              ],
-            ]),
+          ReadingPages<Vital>(
+            key: ValueKey(m.id),
+            rows: v.reversed.toList(growable: false),
+            scrollToPageStart: true,
+            builder: (context, page, controls) => SurfaceCard(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: Column(children: [
+                const Align(alignment: Alignment.centerLeft, child: Text('Reading history', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                const SizedBox(height: 8),
+                for (final x in page) ...[
+                  const Divider1(),
+                  SizedBox(
+                    height: 60,
+                    child: Row(children: [
+                      SizedBox(width: 96, child: Text('${x.a.round()}/${x.b.round()}', style: AppText.numberLarge.copyWith(fontSize: 19))),
+                      Expanded(child: Text('${fmtDay(x.at)}, ${fmtTime(x.at)}${x.pulse > 0 ? ' · pulse ${x.pulse.round()}' : ''}', style: TextStyle(fontSize: 14, color: c.textSecondary))),
+                      StatusPill.info(VitalRanges.ofVital(x)),
+                    ]),
+                  ),
+                ],
+                controls,
+              ]),
+            ),
           ),
         ],
         ConditionExtras(store: s, member: m, condition: 'bp', checkTitle: 'Related check-ups'),

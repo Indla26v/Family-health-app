@@ -5,6 +5,7 @@ import '../../data/catalog.dart';
 import '../../data/health_reading.dart';
 import '../../data/models.dart';
 import '../widgets/common.dart';
+import '../widgets/reading_pages.dart';
 import '../widgets/lab_chart.dart';
 import 'doc_viewer.dart';
 import 'diabetes_detail.dart';
@@ -65,40 +66,46 @@ class TestTrendScreen extends StatelessWidget {
           ]),
         ),
         if (r.isNotEmpty)
-          SurfaceCard(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: Column(children: [
-              Row(children: [
-                const Expanded(child: Text('All results', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-                Text('${r.length} ${r.length == 1 ? 'reading' : 'readings'}', style: TextStyle(fontSize: 14, color: c.textSecondary)),
-              ]),
-              const SizedBox(height: 8),
-              for (final x in r.reversed) ...[
-                const Divider1(),
-                InkWell(
-                  onTap: () => x.docId != null ? openDocument(context, x.docId!) : pushPage(context, ReadingHistoryScreen(memberId: m.id, type: VitalType.sugar, afterMeal: t.key == 'ppbs')),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 64),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Row(children: [
-                        SizedBox(width: 80, child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
-                          child: Text(fmtVal(t, x.value), maxLines: 1, style: AppText.numberLarge.copyWith(fontSize: 21)))),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(x.source, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-                            Text('${fmtDate(x.date)}${x.isHome ? ' · ${fmtTime(x.date)}' : ''}', style: TextStyle(fontSize: 14, color: c.textSecondary)),
-                          ]),
-                        ),
-                        StatusPill.info(healthReadingStatus(x, t, m.sex)),
-                        const SizedBox(width: 8),
-                        Semantics(label: x.isHome ? 'View reading history' : 'View source report', child: Icon(x.isHome ? Icons.history_rounded : Icons.description_rounded, size: 22, color: c.accent)),
-                      ]),
+          ReadingPages<HealthReading>(
+            key: ValueKey(m.id),
+            rows: r.reversed.toList(growable: false),
+            scrollToPageStart: true,
+            builder: (context, page, controls) => SurfaceCard(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: Column(children: [
+                Row(children: [
+                  const Expanded(child: Text('All results', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                  Text('${r.length} ${r.length == 1 ? 'reading' : 'readings'}', style: TextStyle(fontSize: 14, color: c.textSecondary)),
+                ]),
+                const SizedBox(height: 8),
+                for (final x in page) ...[
+                  const Divider1(),
+                  InkWell(
+                    onTap: () => x.docId != null ? openDocument(context, x.docId!) : pushPage(context, ReadingHistoryScreen(memberId: m.id, type: VitalType.sugar, afterMeal: t.key == 'ppbs')),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 64),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(children: [
+                          SizedBox(width: 80, child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
+                            child: Text(fmtVal(t, x.value), maxLines: 1, style: AppText.numberLarge.copyWith(fontSize: 21)))),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(x.source, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                              Text('${fmtDate(x.date)}${x.isHome ? ' · ${fmtTime(x.date)}' : ''}', style: TextStyle(fontSize: 14, color: c.textSecondary)),
+                            ]),
+                          ),
+                          StatusPill.info(healthReadingStatus(x, t, m.sex)),
+                          const SizedBox(width: 8),
+                          Semantics(label: x.isHome ? 'View reading history' : 'View source report', child: Icon(x.isHome ? Icons.history_rounded : Icons.description_rounded, size: 22, color: c.accent)),
+                        ]),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ]),
+                ],
+                controls,
+              ]),
+            ),
           ),
         if (cond != null && cond.id != 'diabetes') ConditionExtras(store: s, member: m, condition: cond.id, checkTitle: 'Related check-ups'),
       ],

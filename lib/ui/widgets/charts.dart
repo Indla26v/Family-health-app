@@ -74,7 +74,7 @@ class _SparkPainter extends CustomPainter {
 
 enum Period { m3, m6, y1, all }
 
-const _periodLabels = {Period.m3: '3M', Period.m6: '6M', Period.y1: '1Y', Period.all: 'All'};
+const _periodLabels = {Period.m3: '3M', Period.m6: '6M', Period.y1: '1Y', Period.all: 'All time'};
 
 DateTime? _cutoff(Period p) {
   final n = DateTime.now();
@@ -95,10 +95,10 @@ enum _ChartStyle {
   final String label;
 }
 
-/// Line chart with period chips, a shaded reference band, out-of-range points
-/// coloured, and tap-a-point to see value, date, lab and "View report".
+/// Interactive chart with style and timeline menus, reference bands and
+/// selectable points.
 ///
-/// Lab charts (no [cutoffOf]) offer All, 1Y and then each calendar year that has
+/// Lab charts (no [cutoffOf]) offer All time and each calendar year that has
 /// results, newest first.
 class TrendChart extends StatefulWidget {
   const TrendChart({
@@ -115,7 +115,7 @@ class TrendChart extends StatefulWidget {
     this.showPeriods = true,
     this.height = 210,
     this.initial = Period.all,
-    this.periods = const [Period.all, Period.y1],
+    this.periods = const [Period.all],
     this.periodLabelOf,
     this.cutoffOf,
   });
@@ -138,7 +138,11 @@ class TrendChart extends StatefulWidget {
   State<TrendChart> createState() => _TrendChartState();
 }
 
-class _TrendChartState extends State<TrendChart> {
+class _TrendChartState extends State<TrendChart>
+    with AutomaticKeepAliveClientMixin<TrendChart> {
+  @override
+  bool get wantKeepAlive => true;
+
   /// A [Period], or a year (int).
   late Object period = widget.initial;
   _ChartStyle localStyle = _ChartStyle.line;
@@ -194,13 +198,14 @@ class _TrendChartState extends State<TrendChart> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final savedStyle = context.select<AppStore?, String?>((store) => store?.prefs.chartStyle);
     final style = savedStyle == null
         ? localStyle
         : _ChartStyle.values.where((option) => option.name == savedStyle).firstOrNull ?? _ChartStyle.line;
     final c = context.c;
     final years = widget.cutoffOf != null ? <int>[] : ({for (final s in widget.series) for (final p in s.points) p.date.year}.toList()..sort((a, b) => b - a));
-    final p0 = period;
+    final p0 = period is int && !years.contains(period) ? Period.all : period;
     final cut = p0 is Period ? (widget.cutoffOf ?? _cutoff)(p0) : null;
     bool keep(ChartPoint p) => p0 is int ? p.date.year == p0 : (cut == null || !p.date.isBefore(cut));
     final series = [
@@ -227,13 +232,13 @@ class _TrendChartState extends State<TrendChart> {
     final multi = same.length > 1;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Semantics(
-        label: 'Chart style',
-        container: true,
-        child: ChoiceChips<_ChartStyle>(
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        _ChartMenu<_ChartStyle>(
+          label: 'Chart style',
+          icon: Icons.bar_chart_rounded,
           options: [for (final option in _ChartStyle.values) (option, tr(option.label))],
           value: style,
-          onChanged: (choice) {
+          onSelected: (choice) {
             if (choice == style) return;
             final store = context.read<AppStore?>();
             setState(() {
@@ -243,24 +248,26 @@ class _TrendChartState extends State<TrendChart> {
             store?.setPref((prefs) => prefs.chartStyle = choice.name);
           },
         ),
-      ),
-      const SizedBox(height: 8),
-      if (widget.showPeriods) ...[
-        ChoiceChips<Object>(
-          options: [
-            for (final p in widget.periods) (p, widget.periodLabelOf?.call(p) ?? _periodLabels[p]!),
-            if (years.length > 1)
+        if (widget.showPeriods)
+          _ChartMenu<Object>(
+            label: 'Timeline',
+            icon: Icons.calendar_today_outlined,
+            options: [
+              for (final p in widget.periods) (p, widget.periodLabelOf?.call(p) ?? _periodLabels[p]!),
               for (final y in years) (y, '$y'),
-          ],
-          value: period,
-          onChanged: (p) => setState(() {
-            period = p;
-            sel = null;
-            view = _fullView;
-          }),
-        ),
-        const SizedBox(height: 12),
-      ],
+            ],
+            value: p0,
+            onSelected: (p) {
+              if (p == p0) return;
+              setState(() {
+                period = p;
+                sel = null;
+                view = _fullView;
+              });
+            },
+          ),
+      ]),
+      const SizedBox(height: 8),
       if (total == 0)
         SizedBox(height: widget.height, child: Center(child: Text('No results in this period', style: TextStyle(fontSize: 15, color: c.textSecondary))))
       else
@@ -346,7 +353,7 @@ class _TrendChartState extends State<TrendChart> {
                   child: Semantics(
                     slider: true,
                     label: 'Reading position',
-                    value: at < 0 ? null : say(at),
+                    value: at >= 0 ? say(at) : (canUp ? 'No visible reading selected' : null),
                     increasedValue: canUp ? say(at + 1) : null,
                     decreasedValue: canDown ? say(at - 1) : null,
                     onIncrease: canUp ? () => step(1) : null,
@@ -399,6 +406,50 @@ class _TrendChartState extends State<TrendChart> {
         ),
       ],
     ]);
+  }
+}
+
+class _ChartMenu<T> extends StatelessWidget {
+  const _ChartMenu({required this.label, required this.icon, required this.options, required this.value, required this.onSelected});
+  final String label;
+  final IconData icon;
+  final List<(T, String)> options;
+  final T value;
+  final ValueChanged<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final current = options.where((entry) => entry.$1 == value).firstOrNull?.$2 ?? options.first.$2;
+    final shape = StadiumBorder(side: BorderSide(color: c.border));
+    return PopupMenuButton<T>(
+      tooltip: label,
+      initialValue: value,
+      onSelected: onSelected,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      itemBuilder: (_) => [
+        for (final (id, text) in options)
+          PopupMenuItem(value: id, child: Text(text)),
+      ],
+      child: Semantics(
+        button: true,
+        label: label,
+        value: current,
+        excludeSemantics: true,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: ShapeDecoration(color: c.surfaceAlt, shape: shape),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 16, color: c.accent),
+            const SizedBox(width: 6),
+            Text(current, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 4),
+            Icon(Icons.expand_more_rounded, size: 19, color: c.textSecondary),
+          ]),
+        ),
+      ),
+    );
   }
 }
 

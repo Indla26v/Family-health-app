@@ -70,23 +70,26 @@ class _HomeShellState extends State<HomeShell> {
       for (final p in [TodayScreen(onSeeRecords: () => setState(() => tab = 2)), const HealthScreen(), const RecordsScreen(), const FamilyScreen()]) SyncRefresh(child: p),
     ];
     final review = s.reviewCount;
-    const dur = Duration(milliseconds: 260);
+    final dur = reduceMotion(context) ? Duration.zero : const Duration(milliseconds: 240);
+    final dockSlot = tab < 2 ? tab : tab + 1;
 
     Widget navItem(int i, IconData off, IconData on, String label, {int badge = 0}) {
       final sel = tab == i;
+      void select() => setState(() => tab = i);
       return Expanded(
         child: Semantics(
           button: true,
           selected: sel,
           label: badge > 0 ? '$label, $badge need review' : label,
           excludeSemantics: true,
+          onTap: select,
           child: InkWell(
-            onTap: () => setState(() => tab = i),
+            onTap: select,
             borderRadius: BorderRadius.circular(28),
             splashColor: Colors.transparent,
             highlightColor: Colors.transparent,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Pressable(
+              scale: .94,
               // Large text: shrink to fit the bar instead of overflowing it.
               child: FittedBox(
                 fit: BoxFit.scaleDown,
@@ -101,11 +104,11 @@ class _HomeShellState extends State<HomeShell> {
                         AnimatedScale(
                           scale: sel ? 1.08 : 1,
                           duration: dur,
-                          curve: Curves.easeOutBack,
+                          curve: kEaseOut,
                           child: Icon(
                             sel ? on : off,
                             size: 22,
-                            color: sel ? c.text : c.textSecondary,
+                            color: Colors.white,
                           ),
                         ),
                         if (badge > 0)
@@ -119,7 +122,7 @@ class _HomeShellState extends State<HomeShell> {
                               decoration: BoxDecoration(
                                 color: c.danger,
                                 borderRadius: BorderRadius.circular(999),
-                                border: Border.all(color: c.surface, width: 2),
+                                border: Border.all(color: Colors.white, width: 1.5),
                               ),
                               child: Text(
                                 '$badge',
@@ -137,23 +140,9 @@ class _HomeShellState extends State<HomeShell> {
                         fontSize: 11,
                         height: 1.15,
                         fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-                        color: sel ? c.text : c.textSecondary,
+                        color: Colors.white,
                       ),
                       child: Text(tr(label)),
-                    ),
-                    const SizedBox(height: 2),
-                    SizedBox(
-                      height: 4,
-                      child: AnimatedContainer(
-                        duration: dur,
-                        curve: kEaseOut,
-                        width: sel ? 4 : 0,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: c.accent,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -179,12 +168,8 @@ class _HomeShellState extends State<HomeShell> {
           child: Container(
             height: 66,
             decoration: BoxDecoration(
-              color: c.surface,
+              gradient: AppPalette.light.gradient,
               borderRadius: BorderRadius.circular(33),
-              border: Border.all(
-                color: c.border.withValues(alpha: .75),
-                width: 1.0,
-              ),
               boxShadow: [
                 BoxShadow(
                   color: c.shadow.withValues(alpha: .08),
@@ -202,9 +187,21 @@ class _HomeShellState extends State<HomeShell> {
               borderRadius: BorderRadius.circular(33),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
+                child: LayoutBuilder(builder: (context, constraints) {
+                  final slotWidth = constraints.maxWidth / 5;
+                  return Stack(fit: StackFit.expand, children: [
+                    AnimatedPositioned(
+                      left: dockSlot * slotWidth + 3,
+                      width: slotWidth - 6,
+                      top: 6, bottom: 6,
+                      duration: dur,
+                      curve: kEaseOut,
+                      child: IgnorePointer(child: DecoratedBox(decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .20),
+                        borderRadius: BorderRadius.circular(24),
+                      ))),
+                    ),
+                    Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     navItem(0, Icons.today_outlined, Icons.today_rounded, 'Today'),
                     navItem(1, Icons.insights_outlined, Icons.insights_rounded, 'Health'),
                     Expanded(
@@ -221,7 +218,7 @@ class _HomeShellState extends State<HomeShell> {
                               shadowColor: c.accent2.withValues(alpha: .45),
                               child: Ink(
                                 decoration: BoxDecoration(
-                                  gradient: c.gradient,
+                                  color: Colors.white.withValues(alpha: .20),
                                   borderRadius: BorderRadius.circular(25),
                                 ),
                                 child: InkWell(
@@ -246,8 +243,9 @@ class _HomeShellState extends State<HomeShell> {
                     ),
                     navItem(2, Icons.folder_outlined, Icons.folder_rounded, 'Records', badge: review),
                     navItem(3, Icons.group_outlined, Icons.group_rounded, 'Family'),
-                  ],
-                ),
+                    ]),
+                  ]);
+                }),
               ),
             ),
           ),

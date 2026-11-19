@@ -1,6 +1,5 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../core/strings.dart';
 import '../../core/theme.dart';
@@ -10,6 +9,7 @@ import '../../data/reading_metric.dart';
 import '../../data/store.dart';
 import 'common.dart';
 import 'metric_card.dart';
+import 'motion.dart';
 
 StatusInfo weightStatus(List<Vital> w) {
   if (w.length < 2) return const StatusInfo(Level.none, 'Steady');
@@ -36,57 +36,6 @@ Widget _readingCard(ReadingMetric metric, List<Vital> rows, VoidCallback onTap) 
     when: latest == null ? '' : ago(latest.at),
     onTap: onTap,
   );
-}
-
-/// Dashed border painter for empty reading slots and dashed action buttons.
-class DashedBorderPainter extends CustomPainter {
-  const DashedBorderPainter({
-    required this.color,
-    this.strokeWidth = 1.0,
-    this.dashLength = 5.0,
-    this.dashGap = 4.0,
-    this.radius = 12.0,
-  });
-
-  final Color color;
-  final double strokeWidth;
-  final double dashLength;
-  final double dashGap;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) return;
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke;
-
-    final rrect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(radius),
-    );
-    final path = Path()..addRRect(rrect);
-
-    for (final metric in path.computeMetrics()) {
-      var distance = 0.0;
-      while (distance < metric.length) {
-        final len = (distance + dashLength < metric.length)
-            ? dashLength
-            : metric.length - distance;
-        canvas.drawPath(metric.extractPath(distance, distance + len), paint);
-        distance += dashLength + dashGap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant DashedBorderPainter oldDelegate) =>
-      oldDelegate.color != color ||
-      oldDelegate.strokeWidth != strokeWidth ||
-      oldDelegate.dashLength != dashLength ||
-      oldDelegate.dashGap != dashGap ||
-      oldDelegate.radius != radius;
 }
 
 /// Title "Latest readings" + status legend dots (Normal, Borderline, High, Steady).
@@ -163,7 +112,7 @@ class _ReadingTile extends StatelessWidget {
   final Vital reading;
   final VoidCallback onTap;
 
-  Color _statusColor(AppPalette c) {
+  Color _statusColor() {
     if (metric == ReadingMetric.weight) {
       return const Color(0xFF64748B); // Steady slate
     }
@@ -179,10 +128,12 @@ class _ReadingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final dotColor = _statusColor(c);
+    final dotColor = _statusColor();
 
     return Material(
-      color: Colors.transparent,
+      color: c.surfaceAlt,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -205,7 +156,7 @@ class _ReadingTile extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                         color: c.text,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -270,203 +221,8 @@ class _ReadingTile extends StatelessWidget {
   }
 }
 
-/// Dashed "+ Add reading" tile in the 2-column grid.
-class _AddReadingTile extends StatelessWidget {
-  const _AddReadingTile({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: CustomPaint(
-            painter: DashedBorderPainter(
-              color: c.border.withValues(alpha: 0.9),
-              strokeWidth: 1.2,
-              dashLength: 5,
-              dashGap: 4,
-              radius: 12,
-            ),
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 52),
-              alignment: Alignment.center,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.add_rounded,
-                      size: 16,
-                      color: c.textSecondary.withValues(alpha: 0.7),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      tr('Add reading'),
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: c.textSecondary.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A card for one family member showing avatar, name, and 2-column reading grid.
-class MemberLatestReadingsCard extends StatelessWidget {
-  const MemberLatestReadingsCard({
-    super.key,
-    required this.member,
-    required this.store,
-    required this.onTrend,
-    required this.onAdd,
-    required this.onHistory,
-  });
-
-  final Member member;
-  final AppStore store;
-  final void Function(ReadingMetric metric) onTrend;
-  final VoidCallback onAdd;
-  final VoidCallback onHistory;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-
-    final activeReadings = <(ReadingMetric, Vital)>[];
-    for (final metric in ReadingMetric.values) {
-      final rows = store.readingsFor(member.id, metric);
-      if (rows.isNotEmpty) {
-        activeReadings.add((metric, rows.last));
-      }
-    }
-
-    final totalSlots = max(4, ((activeReadings.length + 1) ~/ 2) * 2);
-    final rowCount = totalSlots ~/ 2;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: c.border.withValues(alpha: 0.7),
-          width: 0.8,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: c.shadow,
-            blurRadius: 20,
-            spreadRadius: -2,
-            offset: const Offset(0, 8),
-          ),
-          BoxShadow(
-            color: c.shadow,
-            blurRadius: 3,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Header: Avatar, Name, Chevron
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onHistory,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    MemberAvatar(member, size: 32),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        member.name,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: 22,
-                      color: c.textSecondary,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Divider(
-            height: 1,
-            thickness: 1,
-            color: c.border.withValues(alpha: 0.6),
-          ),
-          // 2-column grid
-          for (var r = 0; r < rowCount; r++) ...[
-            if (r > 0)
-              Divider(
-                height: 1,
-                thickness: 1,
-                color: c.border.withValues(alpha: 0.6),
-              ),
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: r * 2 < activeReadings.length
-                        ? _ReadingTile(
-                            metric: activeReadings[r * 2].$1,
-                            reading: activeReadings[r * 2].$2,
-                            onTap: () => onTrend(activeReadings[r * 2].$1),
-                          )
-                        : _AddReadingTile(onTap: onAdd),
-                  ),
-                  VerticalDivider(
-                    width: 1,
-                    thickness: 1,
-                    color: c.border.withValues(alpha: 0.6),
-                  ),
-                  Expanded(
-                    child: r * 2 + 1 < activeReadings.length
-                        ? _ReadingTile(
-                            metric: activeReadings[r * 2 + 1].$1,
-                            reading: activeReadings[r * 2 + 1].$2,
-                            onTap: () => onTrend(activeReadings[r * 2 + 1].$1),
-                          )
-                        : _AddReadingTile(onTap: onAdd),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Latest readings section for the Today screen.
-class LatestReadingsSection extends StatelessWidget {
+/// One open member with direct links to readings, history and entry.
+class LatestReadingsSection extends StatefulWidget {
   const LatestReadingsSection({
     super.key,
     required this.people,
@@ -483,34 +239,231 @@ class LatestReadingsSection extends StatelessWidget {
   final void Function(Member member) onHistory;
 
   @override
-  Widget build(BuildContext context) {
-    final c = context.c;
+  State<LatestReadingsSection> createState() => LatestReadingsSectionState();
+}
 
-    if (people.isEmpty) {
-      return SurfaceCard(
-        child: Text(
-          tr('No readings yet. Use Log reading to add one.'),
-          style: TextStyle(fontSize: 15, color: c.textSecondary),
-        ),
-      );
+class LatestReadingsSectionState extends State<LatestReadingsSection>
+    with SingleTickerProviderStateMixin {
+  final _headers = <String, GlobalKey>{};
+  late final _animation = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 230),
+    value: 1,
+  )..addStatusListener((status) {
+    if (status == AnimationStatus.completed && _closing != null) {
+      setState(() => _closing = null);
     }
+  });
+  String? _selected;
+  String? _closing;
+  bool _anchoring = false;
+  bool _userScrolling = false;
+  int _generation = 0;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const LatestReadingsHeader(),
-        const SizedBox(height: 10),
-        for (var i = 0; i < people.length; i++) ...[
-          if (i > 0) const SizedBox(height: 14),
-          MemberLatestReadingsCard(
-            member: people[i],
-            store: store,
-            onTrend: (metric) => onTrend(people[i], metric),
-            onAdd: () => onAdd(people[i]),
-            onHistory: () => onHistory(people[i]),
+  String? get _open => widget.people.any((m) => m.id == _selected)
+      ? _selected : widget.people.firstOrNull?.id;
+
+  @override
+  void didUpdateWidget(LatestReadingsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final ids = widget.people.map((member) => member.id).toSet();
+    _headers.removeWhere((id, _) => !ids.contains(id));
+    if (_selected != null && !ids.contains(_selected)) {
+      _selected = null;
+      _closing = null;
+      _anchoring = false;
+      _generation++;
+      _animation.stop();
+      _animation.value = 1;
+    }
+  }
+
+  (ScrollPosition, double)? _geometry(String id) {
+    final context = _headers[id]?.currentContext;
+    final box = context?.findRenderObject();
+    if (context == null || box == null || !box.attached) return null;
+    final position = Scrollable.maybeOf(context)?.position;
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (position == null || viewport == null || !position.hasContentDimensions) return null;
+    return (position, viewport.getOffsetToReveal(box, 0).offset);
+  }
+
+  void handleScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return;
+    if (notification is ScrollStartNotification) {
+      _userScrolling = notification.dragDetails != null;
+    } else if (notification is ScrollEndNotification) {
+      _userScrolling = false;
+    }
+    if (_anchoring || notification is! ScrollUpdateNotification) return;
+    _userScrolling |= notification.dragDetails != null;
+    if (!_userScrolling) return;
+    final delta = notification.scrollDelta ?? 0;
+    if (delta == 0 || widget.people.length < 2) return;
+    final index = widget.people.indexWhere((m) => m.id == _open);
+    final next = index + (delta > 0 ? 1 : -1);
+    if (next < 0 || next >= widget.people.length) return;
+    final id = widget.people[next].id;
+    final geometry = _geometry(id);
+    if (geometry == null) return;
+    final (position, offset) = geometry;
+    final visibleAt = offset - position.pixels;
+    final line = position.viewportDimension / 2;
+    final crossed = delta > 0
+        ? visibleAt <= line && visibleAt + delta >= line
+        : visibleAt >= line && visibleAt + delta <= line;
+    final reachedEdge = delta > 0
+        ? position.pixels >= position.maxScrollExtent
+        : position.pixels <= position.minScrollExtent;
+    if ((crossed || reachedEdge) && visibleAt >= 0 && visibleAt <= position.viewportDimension - 40) {
+      _anchoring = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _anchoring = false;
+        if (widget.people.any((member) => member.id == id)) _select(id);
+      });
+    }
+  }
+
+  void _select(String id) {
+    final previous = _open;
+    if (id == previous) return;
+    final anchor = _geometry(id)?.$2;
+    final animate = !reduceMotion(context);
+    final generation = ++_generation;
+    _anchoring = anchor != null;
+    _animation.stop();
+    setState(() {
+      _selected = id;
+      _closing = animate ? previous : null;
+    });
+    if (animate) {
+      _animation.forward(from: 0);
+    } else {
+      _animation.value = 1;
+    }
+    if (anchor == null) return;
+
+    var lastOffset = anchor;
+    void keepHeaderPosition(Duration _) {
+      if (!mounted || generation != _generation) return;
+      final geometry = _geometry(id);
+      if (geometry != null) {
+        final (position, offset) = geometry;
+        final correction = offset - lastOffset;
+        lastOffset = offset;
+        final corrected = (position.pixels + correction).clamp(position.minScrollExtent, position.maxScrollExtent);
+        if ((corrected - position.pixels).abs() >= .1) position.jumpTo(corrected);
+      }
+      if (_animation.isAnimating) {
+        WidgetsBinding.instance.addPostFrameCallback(keepHeaderPosition);
+      } else {
+        _anchoring = false;
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback(keepHeaderPosition);
+  }
+
+  @override
+  void dispose() {
+    _animation.dispose();
+    super.dispose();
+  }
+
+  Widget _body(Member member) {
+    final available = [
+      for (final metric in ReadingMetric.values)
+        if (widget.store.readingsFor(member.id, metric).lastOrNull case final reading?)
+          _ReadingTile(metric: metric, reading: reading, onTap: () => widget.onTrend(member, metric)),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (available.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('No readings yet', style: TextStyle(color: context.c.textSecondary)),
+          ),
+        for (var index = 0; index < available.length; index += 2) ...[
+          if (index > 0) const SizedBox(height: 8),
+          IntrinsicHeight(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Expanded(child: available[index]),
+              const SizedBox(width: 8),
+              Expanded(child: index + 1 < available.length ? available[index + 1] : const SizedBox()),
+            ]),
           ),
         ],
-      ],
+        Wrap(spacing: 8, children: [
+          TextButton(onPressed: () => widget.onHistory(member), child: const Text('Reading history')),
+          TextButton.icon(onPressed: () => widget.onAdd(member), icon: const Icon(Icons.add_rounded, size: 17), label: const Text('Add reading')),
+        ]),
+      ]),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    if (widget.people.isEmpty) {
+      return const SurfaceCard(child: Text('No readings yet. Use Log reading to add one.'));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const LatestReadingsHeader(),
+      const SizedBox(height: 8),
+      for (final (index, member) in widget.people.indexed) ...[
+        if (index > 0) const SizedBox(height: 8),
+        SurfaceCard(
+          key: ValueKey(member.id),
+          padding: EdgeInsets.zero,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Semantics(
+              key: _headers.putIfAbsent(member.id, GlobalKey.new),
+              button: true,
+              expanded: member.id == _open,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _select(member.id),
+                  borderRadius: BorderRadius.circular(kRadiusCard),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Row(children: [
+                      MemberAvatar(member, size: 32),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(member.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                      AnimatedRotation(
+                        turns: member.id == _open ? .5 : 0,
+                        duration: reduceMotion(context) ? Duration.zero : _animation.duration!,
+                        curve: kEaseOut,
+                        child: Icon(Icons.expand_more_rounded, color: c.textSecondary),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+            if (member.id == _open || member.id == _closing)
+              ExcludeSemantics(
+                excluding: member.id != _open,
+                child: IgnorePointer(
+                  ignoring: member.id != _open,
+                  child: AnimatedBuilder(
+                    animation: _animation,
+                    child: _body(member),
+                    builder: (_, child) {
+                      final progress = kEaseOut.transform(_animation.value);
+                      final factor = member.id == _open ? progress : 1 - progress;
+                      return ClipRect(
+                        child: Align(alignment: Alignment.topCenter, heightFactor: factor, child: child),
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ]),
+        ),
+      ],
+    ]);
   }
 }
