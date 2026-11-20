@@ -38,7 +38,10 @@ class AndroidAppUpdateService extends AppUpdateService
   Future<void> setAutomatic(bool enabled) => _run('automatic', enabled);
 
   @override
-  Future<void> useMobileData() => _run('metered', available?.sha256);
+  Future<void> useMobileData() async {
+    final hash = available?.downloadHash;
+    if (hash != null) await _run('metered', hash);
+  }
 
   @override
   Future<void> downloadAndInstall() async {
@@ -94,6 +97,21 @@ class AndroidAppUpdateService extends AppUpdateService
       automatic = data['automatic'] == true;
       notificationsEnabled = data['notificationsEnabled'] == true;
       waitingForUnmetered = data['waitingForUnmetered'] == true;
+      retrying = data['retrying'] == true;
+      usingFullApk = data['fallback'] == true;
+      final checkedAt = data['lastCheck'] as int? ?? 0;
+      lastSuccessfulCheck = checkedAt > 0
+          ? DateTime.fromMillisecondsSinceEpoch(checkedAt)
+          : null;
+      final elapsed = data['transferMillis'] as int?;
+      downloadElapsed = elapsed != null
+          ? Duration(milliseconds: elapsed)
+          : null;
+      downloadComplete = data['transferComplete'] == true;
+      final verified = data['verificationMillis'] as int? ?? -1;
+      verificationElapsed = verified >= 0
+          ? Duration(milliseconds: verified)
+          : null;
       final raw = data['release'] as String?;
       available = null;
       if (raw != null) {
@@ -108,6 +126,7 @@ class AndroidAppUpdateService extends AppUpdateService
           bytes: transfer['size'],
           apkBytes: apk['size'],
           sha256: apk['hash'],
+          downloadHash: transfer['hash'],
         );
       }
       stage = UpdateStage.values.byName(data['stage'] as String);

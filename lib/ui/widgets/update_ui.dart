@@ -54,15 +54,29 @@ class UpdateProgressCard extends StatelessWidget {
             ),
           ],
           if (u.waitingForUnmetered)
-            TextButton(onPressed: () async {
-              final ok = await confirmDialog(context, 'Download using mobile data?',
-                'Android will start a new ${u.available?.sizeLabel ?? ''} transfer. Waiting keeps the current download progress.',
-                yes: 'Use mobile data', danger: false);
-              if (ok) await u.useMobileData();
-            }, child: const Text('Use mobile data')),
+            TextButton(
+              onPressed: () => confirmMobileUpdate(context, u),
+              child: const Text('Use mobile data'),
+            ),
         ],
       ),
     );
+  }
+}
+
+Future<void> confirmMobileUpdate(BuildContext context, AppUpdateService u) async {
+  final info = u.available;
+  if (info == null) return;
+  final ok = await confirmDialog(
+    context,
+    'Download using mobile data?',
+    'Android will start a ${info.sizeLabel} download. Waiting keeps any saved progress.',
+    yes: 'Use mobile data',
+    danger: false,
+  );
+  if (ok && info.buildNumber == u.available?.buildNumber &&
+      info.downloadHash == u.available?.downloadHash) {
+    await u.useMobileData();
   }
 }
 

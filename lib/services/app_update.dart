@@ -31,10 +31,12 @@ class UpdateInfo {
     required this.bytes,
     required this.sha256,
     this.apkBytes,
+    this.downloadHash,
   });
   final String versionName, apkUrl, notes, sha256;
   final int buildNumber, bytes;
   final int? apkBytes;
+  final String? downloadHash;
 
   static String formatBytes(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MiB';
   String get sizeLabel => formatBytes(bytes);
@@ -126,6 +128,12 @@ class AppUpdateService extends ChangeNotifier {
   bool automatic = true;
   bool notificationsEnabled = true;
   bool waitingForUnmetered = false;
+  bool retrying = false;
+  bool usingFullApk = false;
+  DateTime? lastSuccessfulCheck;
+  Duration? downloadElapsed;
+  bool downloadComplete = false;
+  Duration? verificationElapsed;
   Future<void> useMobileData() async {}
   int received = 0;
   Future<void> setAutomatic(bool enabled) async {}
@@ -133,7 +141,11 @@ class AppUpdateService extends ChangeNotifier {
       stage == UpdateStage.downloading || stage == UpdateStage.verifying ||
       stage == UpdateStage.openingInstaller;
   String get statusLabel => switch (stage) {
-    UpdateStage.waiting => waitingForUnmetered ? 'Waiting for an unmetered connection' : 'Waiting to download',
+    UpdateStage.waiting => waitingForUnmetered
+        ? 'Waiting for Wi-Fi or another unmetered connection'
+        : retrying
+            ? 'Retrying download'
+            : 'Waiting to download',
     UpdateStage.downloading => 'Downloading ${UpdateInfo.formatBytes(received)} of ${available?.sizeLabel ?? '…'}',
     UpdateStage.verifying => 'Preparing and verifying update…',
     UpdateStage.ready => 'Ready to install',

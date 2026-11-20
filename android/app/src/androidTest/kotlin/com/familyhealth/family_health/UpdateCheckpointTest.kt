@@ -48,10 +48,66 @@ class UpdateCheckpointTest {
     private fun release() = UpdateRelease.select(JSONObject().put("tag_name", "v2.0.0+999")
         .put("assets", JSONArray().put(asset(name, raw)).put(asset("$name.gz", archive))), listOf("x86_64"))
 
+    @Test fun retriesAndFallbackAreBounded() {
+        assertEquals(DownloadFailure.RETRY, downloadFailure(DownloadManager.ERROR_CANNOT_RESUME, true, 0))
+        assertEquals(DownloadFailure.RETRY, downloadFailure(503, true, 1))
+        assertEquals(DownloadFailure.STOP, downloadFailure(503, true, 2))
+        assertEquals(DownloadFailure.FALLBACK, downloadFailure(404, true, 2))
+        assertEquals(DownloadFailure.STOP, downloadFailure(410, false, 0))
+        assertEquals(DownloadFailure.STORAGE, downloadFailure(DownloadManager.ERROR_INSUFFICIENT_SPACE, true, 0))
+    }
+
+    @Test fun lowStoragePreservesTheDownloadedArchive() {
+        withCompletedArchive(release().let { it.copy(apk = it.apk.copy(size = Long.MAX_VALUE)) }) { ctx, release, id ->
+            val updates = AndroidUpdates(ctx)
+            assertTrue(runCatching { updates.prepare(id) }.isFailure)
+            assertEquals("Free up storage, then retry.", AndroidUpdates(ctx).snapshot()["error"])
+            val preferences = ctx.getSharedPreferences("android_updates", Context.MODE_PRIVATE)
+            assertEquals(id, preferences.getLong("downloadId", -1L))
+            assertFalse(File(ctx.filesDir, "app-updates/" + release.apk.hash + ".apk").exists())
+        }
+    }
+
+    @Test fun corruptArchiveSwitchesToTheRawApkWithoutReusingOldBytes() {
+        val original = release()
+        val target = original.copy(
+            apk = original.apk.copy(url = "https://127.0.0.1:1/update.apk"),
+            download = original.download.copy(hash = hash(raw))
+        )
+        withCompletedArchive(target) { ctx, _, id ->
+            AndroidUpdates(ctx).prepare(id)
+            val snapshot = AndroidUpdates(ctx).snapshot()
+            assertEquals(true, snapshot["fallback"])
+            val fallback = UpdateRelease.read(JSONObject(snapshot["release"] as String))
+            assertEquals(target.apk, fallback.download)
+            assertNotEquals("ready", snapshot["stage"])
+            val prefs = ctx.getSharedPreferences("android_updates", Context.MODE_PRIVATE)
+            assertTrue(prefs.getBoolean("automaticTransfer", false))
+            assertNotEquals(id, prefs.getLong("downloadId", -1L))
+        }
+    }
+
     @Test @Suppress("DEPRECATION")
     fun downloadedArchiveCanBePreparedOfflineAndInstallerRetried() {
+        withCompletedArchive(release()) { ctx, release, id ->
+            AndroidUpdates(ctx).prepare(id)
+            val reopened = AndroidUpdates(ctx)
+            val snapshot = reopened.snapshot()
+            assertEquals("ready", snapshot["stage"])
+            assertEquals(archive.size.toLong(), snapshot["received"])
+            assertEquals(true, snapshot["transferComplete"])
+            assertTrue((snapshot["verificationMillis"] as Long) >= 0L)
+            assertArrayEquals(raw, File(reopened.readyPath(release.apk.hash)).readBytes())
+            reopened.start(false)
+            val prefs = ctx.getSharedPreferences("android_updates", Context.MODE_PRIVATE)
+            assertEquals(-1L, prefs.getLong("downloadId", -1L))
+            assertTrue(runCatching { reopened.readyPath("different-build") }.isFailure)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun withCompletedArchive(release: UpdateRelease, action: (Context, UpdateRelease, Long) -> Unit) {
         val ctx = context
-        val release = release()
         val file = File.createTempFile("checkpoint", ".gz", ctx.getExternalFilesDir(null))
         val prefs = ctx.getSharedPreferences("android_updates", Context.MODE_PRIVATE)
         val manager = ctx.getSystemService(DownloadManager::class.java)
@@ -62,16 +118,11 @@ class UpdateCheckpointTest {
         try {
             prefs.edit().putBoolean("automatic", false).putString("release", release.json().toString())
                 .putLong("downloadId", id).commit()
-            AndroidUpdates(ctx).prepare(id)
-            val reopened = AndroidUpdates(ctx)
-            assertEquals("ready", reopened.snapshot()["stage"])
-            assertArrayEquals(raw, File(reopened.readyPath(release.apk.hash)).readBytes())
-            reopened.start(false)
-            assertEquals(-1L, prefs.getLong("downloadId", -1L))
-            assertEquals(staged.path, AndroidUpdates(ctx).readyPath(release.apk.hash))
-            assertTrue(runCatching { reopened.readyPath("different-build") }.isFailure)
+            action(ctx, release, id)
         } finally {
             manager.remove(id)
+            val replacement = prefs.getLong("downloadId", -1L)
+            if (replacement >= 0L && replacement != id) manager.remove(replacement)
             prefs.edit().clear().commit()
             staged.delete()
             file.delete()

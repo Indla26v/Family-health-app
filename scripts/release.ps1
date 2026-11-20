@@ -31,13 +31,18 @@
 .PARAMETER SkipBuild
   Verify and use the APKs already built by build-release-apks.ps1.
 
+.PARAMETER UpgradeTestAvd
+  Rootable x86-64 Android emulator profile for the signed upgrade test.
+  The test starts its own read-only instance.
+
 .EXAMPLE
   .\scripts\release.ps1 -Notes "Fixed BP/sugar reading times on Today"
 #>
 param(
   [string]$Notes = "",
   [string]$Version = "",
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  [string]$UpgradeTestAvd = "FamilyHealthApi34Upgrade"
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,6 +68,7 @@ $content = $content -replace '(?m)^version:\s*\d+\.\d+\.\d+\+\d+\s*$', "version:
 & (Join-Path $PSScriptRoot "build-release-apks.ps1") -Version $newName -Build $newBuild -VerifyOnly:$SkipBuild
 $assetDir = Join-Path "apk" $tag
 $apkSrc = Join-Path $assetDir "FamilyHealth.apk"
+& (Join-Path $PSScriptRoot "test-release-upgrade.ps1") -Candidate (Join-Path $assetDir "FamilyHealth-x86_64.apk") -Build $newBuild -Avd $UpgradeTestAvd
 
 # ---- 3. Copy to the usual places ------------------------------------------
 New-Item -ItemType Directory -Force -Path "apk" | Out-Null

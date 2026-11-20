@@ -1,10 +1,14 @@
 import 'dart:convert';
 
+import 'package:family_health/core/theme.dart';
 import 'package:family_health/services/app_update.dart';
+import 'package:family_health/ui/screens/update_status.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> asset(String suffix, {String? digest}) => {
@@ -20,6 +24,15 @@ Map<String, dynamic> release(List<Map<String, dynamic>> assets) => {
   'assets': assets,
 };
 
+class _MeteredUpdate extends AppUpdateService {
+  int approvals = 0;
+
+  @override
+  Future<void> useMobileData() async {
+    approvals++;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -33,6 +46,45 @@ void main() {
       buildSignature: '',
       installerStore: null,
     );
+  });
+
+  testWidgets('update status shows fallback size before authorizing mobile data',
+      (tester) async {
+    final updater = _MeteredUpdate()
+      ..installedVersion = '1.0.9'
+      ..installedBuild = 11
+      ..available = const UpdateInfo(
+        versionName: '1.0.9',
+        buildNumber: 12,
+        apkUrl: 'https://github.com/example/update.apk',
+        notes: '',
+        bytes: 42 * 1024 * 1024,
+        sha256: 'apk',
+        downloadHash: 'apk',
+      )
+      ..stage = UpdateStage.waiting
+      ..usingFullApk = true
+      ..waitingForUnmetered = true
+      ..downloadElapsed = const Duration(seconds: 70);
+    addTearDown(updater.dispose);
+    await tester.pumpWidget(ChangeNotifierProvider<AppUpdateService>.value(
+      value: updater,
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: const UpdateStatusScreen(),
+      ),
+    ));
+    expect(find.text('Waiting for Wi-Fi or another unmetered connection'), findsOneWidget);
+    expect(find.text('Using the full APK.'), findsOneWidget);
+    final mobileButton = find.widgetWithText(FilledButton, 'Use mobile data');
+    await tester.ensureVisible(mobileButton);
+    await tester.tap(mobileButton);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('42.00 MiB download'), findsOneWidget);
+    expect(updater.approvals, 0);
+    await tester.tap(find.widgetWithText(TextButton, 'Use mobile data'));
+    await tester.pumpAndSettle();
+    expect(updater.approvals, 1);
   });
 
   test('chooses the preferred verified ABI APK, with universal fallback', () {

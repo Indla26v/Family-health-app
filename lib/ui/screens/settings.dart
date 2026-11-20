@@ -19,6 +19,7 @@ import '../widgets/update_ui.dart';
 import 'lock_screen.dart';
 import 'login_screen.dart';
 import 'delete_everything.dart';
+import 'update_status.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -200,6 +201,12 @@ class SettingsScreen extends StatelessWidget {
         ]),
         if (updates != null)
           group('About', [
+            if (updates.supportsScheduling)
+              nav(Icons.info_outline, 'Update status', 'Download progress and recent checks', () {
+                Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const UpdateStatusScreen(),
+                ));
+              }),
             if (updates.supportsScheduling)
               SwitchRow(icon: Icons.download_rounded, title: 'Automatic updates',
                 subtitle: 'Check daily and download on unmetered connections',
