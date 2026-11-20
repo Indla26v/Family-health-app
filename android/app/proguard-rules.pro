@@ -16,3 +16,10 @@
 -keepclassmembers class * {
     native <methods>;
 }
+
+# Room opens WorkManager's generated database by reflection on a cold start.
+-keep class androidx.work.impl.WorkDatabase_Impl { public <init>(); }
+# WorkManager persists these class names and creates workers after restarts.
+-keep class com.familyhealth.family_health.*UpdateWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}

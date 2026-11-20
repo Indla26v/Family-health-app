@@ -90,7 +90,10 @@ $target = (git rev-parse HEAD).Trim()
 # ---- 5. Upload a draft, verify published digests, then publish -------------
 if ($Notes -eq "") { $Notes = "Release $tag" }
 $assets = @("FamilyHealth.apk", "FamilyHealth-arm64-v8a.apk", "FamilyHealth-armeabi-v7a.apk", "FamilyHealth-x86_64.apk") |
-  ForEach-Object { Join-Path $assetDir $_ }
+  ForEach-Object {
+    Join-Path $assetDir $_
+    Join-Path $assetDir "$_.gz"
+  }
 gh release create $tag @assets --target $target --draft --title $tag --notes $Notes
 if ($LASTEXITCODE -ne 0) { throw "Could not create the draft release" }
 $published = (gh release view $tag --json assets | ConvertFrom-Json).assets
@@ -105,4 +108,4 @@ foreach ($asset in $assets) {
 }
 gh release edit $tag --draft=false --latest
 if ($LASTEXITCODE -ne 0) { throw "Could not publish the verified draft" }
-Write-Host "Published $tag with four verified APKs." -ForegroundColor Cyan
+Write-Host "Published $tag with four verified APKs and their compressed downloads." -ForegroundColor Cyan

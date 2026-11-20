@@ -30,9 +30,7 @@ class UpdateProgressCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  downloading
-                      ? 'Downloading update…'
-                      : 'Opening Android installer…',
+                  u.statusLabel,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -55,6 +53,13 @@ class UpdateProgressCard extends StatelessWidget {
               ),
             ),
           ],
+          if (u.waitingForUnmetered)
+            TextButton(onPressed: () async {
+              final ok = await confirmDialog(context, 'Download using mobile data?',
+                'Android will start a new ${u.available?.sizeLabel ?? ''} transfer. Waiting keeps the current download progress.',
+                yes: 'Use mobile data', danger: false);
+              if (ok) await u.useMobileData();
+            }, child: const Text('Use mobile data')),
         ],
       ),
     );
@@ -73,14 +78,14 @@ class UpdateBanner extends StatelessWidget {
       return BannerCard(
         icon: Icons.error_rounded,
         tone: 'danger',
-        text: 'Couldn’t install the update — tap to retry',
+        text: '${u.statusLabel} · Tap to retry',
         onTap: u.downloadAndInstall,
       );
     }
     return BannerCard(
       icon: Icons.system_update_rounded,
       tone: 'info',
-      text: 'Update available • v${info.versionName}+${info.buildNumber}',
+      text: '${u.statusLabel} • v${info.versionName}+${info.buildNumber}',
       onTap: () => showUpdateSheet(context, u, info),
       trailing: IconButton(
         tooltip: 'Dismiss',
@@ -152,8 +157,11 @@ void showUpdateSheet(
                 ),
               ],
               const SizedBox(height: 18),
+              if (info.apkBytes != null && info.apkBytes != info.bytes)
+                Text('${info.sizeLabel} download · ${UpdateInfo.formatBytes(info.apkBytes!)} APK'),
+              if (u.error != null) Text(u.error!),
               BigButton(
-                label: 'Download ${info.sizeLabel}',
+                label: u.stage == UpdateStage.ready ? 'Install' : 'Download ${info.sizeLabel}',
                 icon: Icons.download_rounded,
                 onTap: () {
                   Navigator.pop(ctx);

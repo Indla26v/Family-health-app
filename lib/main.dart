@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme.dart';
 import 'data/store.dart';
 import 'services/api_client.dart';
 import 'services/app_update.dart';
+import 'services/android_app_update.dart';
 import 'services/reminders.dart';
 import 'services/share_inbox.dart';
 import 'services/sync_service.dart';
@@ -17,7 +19,9 @@ Future<void> main() async {
   await TokenStore.instance.load();
   final sync = SyncService(store)..attach();
   await Reminders.init();
-  final updates = AppUpdateService();
+  final updates = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+      ? AndroidAppUpdateService()
+      : AppUpdateService();
   runApp(MultiProvider(
     providers: [
       ChangeNotifierProvider<AppStore>.value(value: store),

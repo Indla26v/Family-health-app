@@ -30,11 +30,14 @@ class UpdateInfo {
     required this.notes,
     required this.bytes,
     required this.sha256,
+    this.apkBytes,
   });
   final String versionName, apkUrl, notes, sha256;
   final int buildNumber, bytes;
+  final int? apkBytes;
 
-  String get sizeLabel => '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
+  static String formatBytes(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MiB';
+  String get sizeLabel => formatBytes(bytes);
 
   static UpdateInfo? fromRelease(
     Map<String, dynamic> release,
@@ -89,7 +92,7 @@ class UpdateInfo {
   }
 }
 
-enum UpdateStage { idle, checking, downloading, openingInstaller, error }
+enum UpdateStage { idle, checking, waiting, downloading, verifying, ready, openingInstaller, error }
 
 class AppUpdateService extends ChangeNotifier {
   AppUpdateService({
@@ -119,10 +122,29 @@ class AppUpdateService extends ChangeNotifier {
   String? installedVersion;
   bool checkFailed = false;
   bool upToDate = false;
+  bool get supportsScheduling => false;
+  bool automatic = true;
+  bool notificationsEnabled = true;
+  bool waitingForUnmetered = false;
+  Future<void> useMobileData() async {}
+  int received = 0;
+  Future<void> setAutomatic(bool enabled) async {}
+  bool get showingProgress => stage == UpdateStage.waiting ||
+      stage == UpdateStage.downloading || stage == UpdateStage.verifying ||
+      stage == UpdateStage.openingInstaller;
+  String get statusLabel => switch (stage) {
+    UpdateStage.waiting => waitingForUnmetered ? 'Waiting for an unmetered connection' : 'Waiting to download',
+    UpdateStage.downloading => 'Downloading ${UpdateInfo.formatBytes(received)} of ${available?.sizeLabel ?? '…'}',
+    UpdateStage.verifying => 'Preparing and verifying update…',
+    UpdateStage.ready => 'Ready to install',
+    UpdateStage.openingInstaller => 'Opening Android installer…',
+    UpdateStage.checking => 'Checking…',
+    UpdateStage.error => error ?? 'Update failed',
+    UpdateStage.idle => 'Update available',
+  };
   bool get busy =>
       stage == UpdateStage.checking ||
-      stage == UpdateStage.downloading ||
-      stage == UpdateStage.openingInstaller;
+      showingProgress;
 
   /// Automatic checks respect the cooldown. Manual checks include dismissed builds.
   Future<void> check({bool force = false}) async {
@@ -204,6 +226,7 @@ class AppUpdateService extends ChangeNotifier {
     if (info == null || busy) return;
     stage = UpdateStage.downloading;
     progress = 0;
+    received = 0;
     error = null;
     notifyListeners();
     http.Client? client;
@@ -242,6 +265,7 @@ class AppUpdateService extends ChangeNotifier {
           if (percent != lastPercent) {
             lastPercent = percent;
             progress = received / info.bytes;
+            this.received = received;
             notifyListeners();
           }
         }

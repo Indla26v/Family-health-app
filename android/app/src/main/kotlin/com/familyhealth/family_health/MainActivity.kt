@@ -27,10 +27,34 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "family_health/update")
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        val updates = AndroidUpdates(applicationContext)
+        MethodChannel(messenger, "family_health/update", io.flutter.plugin.common.StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue())
             .setMethodCallHandler { call, result ->
-                if (call.method == "supportedAbis") result.success(Build.SUPPORTED_ABIS.toList())
-                else result.notImplemented()
+                try {
+                    when (call.method) {
+                        "initialize" -> updates.schedule()
+                        "check" -> updates.check(false)
+                        "start" -> updates.start(false)
+                        "metered" -> updates.start(false, call.arguments as? String)
+                        "automatic" -> updates.setAutomatic(call.arguments == true)
+                        "dismiss" -> updates.dismiss()
+                        "snapshot" -> Unit
+                        "install" -> {
+                            startActivity(UpdateNotice.installIntent(this, File(updates.readyPath(call.arguments as? String))))
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        else -> {
+                            result.notImplemented()
+                            return@setMethodCallHandler
+                        }
+                    }
+                    result.success(updates.snapshot())
+                } catch (e: Exception) {
+                    result.error("update_failed", e.message ?: "App update failed", null)
+                }
             }
         shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "family_health/share").also {
             it.setMethodCallHandler { call, result ->

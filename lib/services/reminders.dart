@@ -67,6 +67,11 @@ class Reminders {
     }
   }
 
+  static Future<bool> requestUpdateNotifications() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    return await android?.requestNotificationsPermission() ?? false;
+  }
+
   static int _id(String medId, DoseTime t) => (medId.hashCode ^ (t.hour * 60 + t.minute) * 7919) & 0x3fffffff;
 
   /// One-off reminder a few minutes from now ("Snooze 10 min").

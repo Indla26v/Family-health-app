@@ -200,6 +200,15 @@ class SettingsScreen extends StatelessWidget {
         ]),
         if (updates != null)
           group('About', [
+            if (updates.supportsScheduling)
+              SwitchRow(icon: Icons.download_rounded, title: 'Automatic updates',
+                subtitle: 'Check daily and download on unmetered connections',
+                value: updates.automatic, onChanged: updates.setAutomatic),
+            if (updates.supportsScheduling && !updates.notificationsEnabled)
+              nav(Icons.notifications_outlined, 'Update notifications', 'Get notified when an update is ready to install', () async {
+                final allowed = await Reminders.requestUpdateNotifications();
+                if (context.mounted && !allowed) toast(context, 'Enable notifications in Android settings');
+              }),
             nav(
               Icons.system_update_rounded,
               'Check for updates',
@@ -208,12 +217,16 @@ class SettingsScreen extends StatelessWidget {
                   : updates.checkFailed
                       ? 'Couldn’t check for updates'
                       : updates.available != null
-                          ? 'Update available • v${updates.available!.versionName}+${updates.available!.buildNumber}'
+                          ? '${updates.statusLabel} • v${updates.available!.versionName}+${updates.available!.buildNumber}'
                           : updates.upToDate
                               ? 'Up to date • v${updates.installedVersion}+${updates.installedBuild}'
                               : 'Installed v${updates.installedVersion ?? '—'}+${updates.installedBuild ?? '—'}',
               () async {
                 if (updates.busy) return;
+                if (updates.stage == UpdateStage.ready && updates.available != null) {
+                  showUpdateSheet(context, updates, updates.available!);
+                  return;
+                }
                 await updates.check(force: true);
                 if (!context.mounted) return;
                 final info = updates.available;

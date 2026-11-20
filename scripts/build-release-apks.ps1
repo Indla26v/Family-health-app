@@ -54,6 +54,27 @@ try {
     $file = Get-Item -LiteralPath $asset
     $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Host "$assetName | $($file.Length) bytes | sha256:$hash"
+    $gzipPath = "$asset.gz"
+    if (-not $VerifyOnly -or -not (Test-Path -LiteralPath $gzipPath)) {
+      $inputFile = $file.OpenRead()
+      try {
+        $outputFile = [IO.File]::Create($gzipPath)
+        try {
+          $gzip = [IO.Compression.GZipStream]::new($outputFile, [IO.Compression.CompressionLevel]::Optimal)
+          try { $inputFile.CopyTo($gzip) } finally { $gzip.Dispose() }
+        } finally { $outputFile.Dispose() }
+      } finally { $inputFile.Dispose() }
+    }
+    $compressed = [IO.File]::OpenRead($gzipPath)
+    try {
+      $decoder = [IO.Compression.GZipStream]::new($compressed, [IO.Compression.CompressionMode]::Decompress)
+      try {
+        if ((Get-FileHash -InputStream $decoder -Algorithm SHA256).Hash -ne $hash) {
+          throw "Compressed update does not reconstruct $assetName"
+        }
+      } finally { $decoder.Dispose() }
+    } finally { $compressed.Dispose() }
+    Write-Host "$assetName.gz | $((Get-Item -LiteralPath $gzipPath).Length) download bytes"
   }
 } finally {
   $env:FAMILY_HEALTH_APK_ABI = $previousAbi

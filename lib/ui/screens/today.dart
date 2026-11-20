@@ -54,7 +54,7 @@ class _TodayScreenState extends State<TodayScreen> {
   Widget build(BuildContext context) {
     final s = watchStore(context);
     final updates = context.watch<AppUpdateService?>();
-    final updating = updates?.stage == UpdateStage.downloading || updates?.stage == UpdateStage.openingInstaller;
+    final updating = updates?.showingProgress ?? false;
     final dockInset = MediaQuery.paddingOf(context).bottom;
     final c = context.c;
     final visible = s.visibleMembers;
