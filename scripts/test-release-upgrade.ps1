@@ -24,6 +24,14 @@ function Wait-Until([scriptblock]$Condition, [int]$Seconds, [string]$Failure) {
   throw $Failure
 }
 
+# An adb call whose failure is expected (polling while the emulator boots, or
+# stopping one that already went). Windows PowerShell 5.1 turns a native
+# command's stderr into a terminating error under "Stop", even with 2>$null.
+function Probe([string[]]$Arguments) {
+  $ErrorActionPreference = "Continue"
+  return & $adb -s $serial @Arguments 2>$null
+}
+
 function Device([string[]]$Arguments) {
   $output = & $adb -s $serial @Arguments
   if ($LASTEXITCODE -ne 0) { throw "Emulator command failed: $($Arguments -join ' ')" }
@@ -69,10 +77,10 @@ try {
   $process = Start-Process -FilePath $emulator -PassThru -WindowStyle Hidden -ArgumentList $emulatorArgs -RedirectStandardOutput (Join-Path $temp "emulator.log") -RedirectStandardError (Join-Path $temp "emulator.err")
   Wait-Until {
     if ($process.HasExited) { throw "The disposable emulator exited before booting." }
-    (& $adb -s $serial shell getprop sys.boot_completed 2>$null) -eq "1"
+    (Probe @("shell", "getprop", "sys.boot_completed")) -eq "1"
   } 150 "The disposable emulator did not boot."
   Device @("root") | Out-Null
-  Wait-Until { (& $adb -s $serial shell id -u 2>$null) -eq "0" } 25 "The test AVD must support adb root."
+  Wait-Until { (Probe @("shell", "id", "-u")) -eq "0" } 25 "The test AVD must support adb root."
   Device @("shell", "input", "keyevent", "KEYCODE_WAKEUP") | Out-Null
   Device @("shell", "wm", "dismiss-keyguard") | Out-Null
   Device @("shell", "svc", "wifi", "enable") | Out-Null
@@ -122,7 +130,7 @@ try {
   Write-Host "Signed upgrade from $baselineTag to build $Build passed." -ForegroundColor Green
 } finally {
   if ($process -and !$process.HasExited) {
-    & $adb -s $serial emu kill 2>$null | Out-Null
+    Probe @("emu", "kill") | Out-Null
     if (!$process.WaitForExit(10000)) { Stop-Process -Id $process.Id }
   }
   $resolved = (Resolve-Path -LiteralPath $temp).Path
