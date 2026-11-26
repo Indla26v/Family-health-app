@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/strings.dart';
 import 'catalog.dart';
+import 'cult_fit.dart';
 import 'health_reading.dart';
 import 'models.dart';
 import 'sync_state.dart';
@@ -591,6 +592,18 @@ class AppStore extends ChangeNotifier {
   void removeVitalsWhere(bool Function(Vital) matches) {
     _vitals.removeWhere(matches);
     _readingIndex = null;
+  }
+
+  void addCultMeasurement(String memberId, CultMeasurement measurement) {
+    if (member(memberId) == null) throw StateError('Choose a family member.');
+    final matches = readingsFor(memberId, ReadingMetric.weight).where((row) => row.at.isAtSameMomentAs(measurement.at)).toList();
+    if (matches.length > 1) throw const FormatException('There are multiple weight entries at this measurement time.');
+    final id = matches.firstOrNull?.id ?? _uuid.v5(
+      Namespace.url.value,
+      'family-health/cult-fit/$memberId/${measurement.at.millisecondsSinceEpoch}',
+    );
+    addVital(Vital(id: id, memberId: memberId, type: VitalType.weight,
+        at: measurement.at, a: measurement.weight, cultFit: measurement.fields));
   }
 
   void addVital(Vital v) {

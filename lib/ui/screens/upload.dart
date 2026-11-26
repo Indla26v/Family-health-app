@@ -1,7 +1,10 @@
+import 'dart:io' show File;
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/theme.dart';
 import '../../data/models.dart';
@@ -13,6 +16,23 @@ import 'review.dart';
 
 class PickedFile {
   PickedFile(this.name, this.bytes, {this.photos});
+  static Future<PickedFile> read(PlatformFile file) async {
+    try {
+      return PickedFile(file.name, await file.readAsBytes());
+    } finally {
+      // The Android picker materializes its own copy. Keep only the bytes
+      // needed by the importer, and never remove the user's original file.
+      final path = file.path;
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && path != null) {
+        final cache = await getTemporaryDirectory();
+        final copy = File(path);
+        if (copy.uri.normalizePath().path.startsWith('${cache.uri.path}file_picker/') && await copy.exists()) {
+          await copy.delete();
+        }
+      }
+    }
+  }
+
   final String name;
   final Uint8List bytes;
 
@@ -22,14 +42,14 @@ class PickedFile {
 
 /// Source → member → reading → result.
 class UploadScreen extends StatefulWidget {
-  const UploadScreen({super.key, this.memberId, this.photosFirst = false, this.shared});
+  const UploadScreen({super.key, this.memberId, this.photosFirst = false, this.shared, this.cultOnly = false});
   final String? memberId;
 
   /// Files shared to the app from Photos, WhatsApp…: skip choosing a source.
   final List<PickedFile>? shared;
 
   /// Open the photo picker straight away (e.g. "Pick photos again" for an unreadable scan).
-  final bool photosFirst;
+  final bool photosFirst, cultOnly;
   @override
   State<UploadScreen> createState() => _UploadScreenState();
 }
@@ -39,24 +59,25 @@ class _UploadScreenState extends State<UploadScreen> {
   List<PickedFile> files = [];
   String? memberId;
   final outcomes = <UploadOutcome>[];
-  int done = 0;
+  int done = 0, cultCount = 0;
   String? error;
 
   @override
   void initState() {
     super.initState();
     memberId = widget.memberId;
+    if (widget.cultOnly) WidgetsBinding.instance.addPostFrameCallback((_) => _files());
     if (widget.photosFirst) WidgetsBinding.instance.addPostFrameCallback((_) => _gallery());
     if (widget.shared != null) WidgetsBinding.instance.addPostFrameCallback((_) => _afterPick(widget.shared!));
   }
 
   Future<void> _files() async {
     try {
-      final picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png']);
+      final picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: widget.cultOnly ? ['pdf'] : ['pdf', 'jpg', 'jpeg', 'png']);
       if (picked.isEmpty) return;
       final list = <PickedFile>[];
       for (final f in picked) {
-        list.add(PickedFile(f.name, await f.readAsBytes()));
+        list.add(await PickedFile.read(f));
       }
       _afterPick(list);
     } catch (e) {
@@ -90,7 +111,7 @@ class _UploadScreenState extends State<UploadScreen> {
       if (people.any((m) => m.id == memberId) && widget.memberId != null) {
         step = 2;
       } else {
-        step = people.length == 1 ? 2 : 1;
+        step = people.length == 1 && widget.shared == null ? 2 : 1;
       }
     });
     if (step == 2) _process();
@@ -101,13 +122,20 @@ class _UploadScreenState extends State<UploadScreen> {
     setState(() {
       step = 2;
       done = 0;
+      cultCount = 0;
       outcomes.clear();
       error = null;
     });
     for (final f in files) {
       try {
-        final o = await processUpload(s, memberId: memberId!, fileName: f.name, bytes: f.bytes, photos: f.photos);
-        outcomes.add(o);
+        final o = await importFile(s, memberId: memberId!, fileName: f.name, bytes: f.bytes, photos: f.photos, cultOnly: widget.cultOnly);
+        if (o.lab == null) {
+          cultCount++;
+        } else {
+          outcomes.add(o.lab!);
+        }
+      } on FormatException catch (e) {
+        error = '${f.name}: ${e.message}';
       } catch (e) {
         error = 'Something went wrong while reading ${f.name}.';
       }
@@ -148,7 +176,7 @@ class _UploadScreenState extends State<UploadScreen> {
       body: SafeArea(
         child: Column(children: [
           ScreenHeader(
-            title: 'Upload report',
+            title: widget.cultOnly ? 'Import Cult Fit data' : 'Upload report',
             subtitle: 'Step ${step + 1} of 4',
             trailing: RoundIconButton(icon: Icons.close_rounded, label: 'Close', onTap: () => Navigator.of(context).maybePop()),
           ),
@@ -161,9 +189,9 @@ class _UploadScreenState extends State<UploadScreen> {
               if (step == 0) ...[
                 const Text('Where is the report?', style: AppText.titleLarge),
                 const SizedBox(height: 16),
-                source(Icons.folder_rounded, 'Files', 'PDF from WhatsApp, Gmail or your downloads', _files),
+                source(Icons.folder_rounded, 'Files', widget.cultOnly ? 'Cult Fit measurement PDF' : 'PDF from WhatsApp, Gmail or your downloads', _files),
                 const SizedBox(height: 12),
-                source(Icons.photo_library_rounded, 'Photos', 'Photos of a paper report — pick all its pages', _gallery),
+                if (!widget.cultOnly) source(Icons.photo_library_rounded, 'Photos', 'Photos of a paper report — pick all its pages', _gallery),
                 const SizedBox(height: 20),
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Icon(Icons.lock_rounded, size: 18, color: c.textSecondary),
@@ -209,7 +237,15 @@ class _UploadScreenState extends State<UploadScreen> {
                 const SizedBox(height: 16),
                 Center(child: Container(width: 88, height: 88, decoration: BoxDecoration(color: unreadable == outcomes.length && outcomes.isNotEmpty ? c.warnTint : c.accentTint, shape: BoxShape.circle), child: Icon(unreadable == outcomes.length && outcomes.isNotEmpty ? Icons.error_rounded : Icons.check_rounded, size: 48, color: unreadable == outcomes.length && outcomes.isNotEmpty ? c.warn : c.accent))),
                 const SizedBox(height: 16),
-                if (outcomes.isEmpty || unreadable == outcomes.length) ...[
+                if (cultCount > 0) ...[
+                  Text('$cultCount Cult Fit ${cultCount == 1 ? "measurement" : "measurements"} in ${m?.name}’s history', textAlign: TextAlign.center, style: AppText.titleLarge),
+                  const SizedBox(height: 8),
+                  const Text('Weight is also in Blood data.', textAlign: TextAlign.center),
+                ],
+                if (error != null && (outcomes.isNotEmpty || cultCount > 0)) Text(error!),
+                if (cultCount > 0 && outcomes.isEmpty)
+                  BigButton(label: 'Done', onTap: () => Navigator.of(context).maybePop())
+                else if (outcomes.isEmpty || unreadable == outcomes.length) ...[
                   Center(child: Text(error ?? 'Couldn’t read tests from this file', textAlign: TextAlign.center, style: AppText.titleLarge)),
                   const SizedBox(height: 8),
                   Text('No test values could be read. For photos, try again in good light with the whole page flat in the frame — or enter the values by hand.', textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: c.textSecondary)),

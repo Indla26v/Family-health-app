@@ -56,6 +56,17 @@ class MainActivity : FlutterFragmentActivity() {
                     result.error("update_failed", e.message ?: "App update failed", null)
                 }
             }
+        MethodChannel(messenger, "family_health/share_pdf", io.flutter.plugin.common.StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue()).setMethodCallHandler { call, result ->
+            val uri = (call.arguments as? String)?.let(Uri::parse)
+            if (call.method != "read" || uri?.scheme != "content") {
+                result.notImplemented()
+            } else try {
+                result.success(contentResolver.openInputStream(uri)?.use { it.readBytes() })
+            } catch (e: Exception) {
+                result.error("share_read", "Could not open shared PDF", null)
+            }
+        }
         shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "family_health/share").also {
             it.setMethodCallHandler { call, result ->
                 if (call.method == "takeShared") {
@@ -72,12 +83,11 @@ class MainActivity : FlutterFragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         val files = readShare(intent) ?: return
-        pendingShare = files
+        pendingShare = pendingShare.orEmpty() + files
         shareChannel?.invokeMethod("shared", null)
     }
 
-    /// Copies shared images/PDFs into the app's cache (content:// links stop working
-    /// once the sharing app lets go) and returns their paths, types and names.
+    /// Images use temporary files. PDFs are read directly from the granted content URI.
     private fun readShare(intent: Intent?): List<Map<String, String>>? {
         if (intent == null) return null
         val uris: List<Uri> = when (intent.action) {
@@ -98,6 +108,9 @@ class MainActivity : FlutterFragmentActivity() {
                 val mime = contentResolver.getType(uri) ?: intent.type ?: return@mapIndexedNotNull null
                 if (!mime.startsWith("image/") && mime != "application/pdf") return@mapIndexedNotNull null
                 val name = displayName(uri) ?: "shared_$i"
+                if (mime == "application/pdf") {
+                    return@mapIndexedNotNull mapOf("path" to uri.toString(), "mime" to mime, "name" to name)
+                }
                 if (mime.startsWith("image/") && mime != "image/jpeg" && mime != "image/png") {
                     // HEIC, WebP…: convert to JPEG so every step (reading, PDF) can use it.
                     val out = File(dir, "${stamp}_$i.jpg")
@@ -110,7 +123,7 @@ class MainActivity : FlutterFragmentActivity() {
                     bmp.recycle()
                     return@mapIndexedNotNull mapOf("path" to out.absolutePath, "mime" to "image/jpeg", "name" to name)
                 }
-                val ext = if (mime == "application/pdf") "pdf" else if (mime == "image/png") "png" else "jpg"
+                val ext = if (mime == "image/png") "png" else "jpg"
                 val out = File(dir, "${stamp}_$i.$ext")
                 contentResolver.openInputStream(uri)?.use { input -> out.outputStream().use { input.copyTo(it) } } ?: return@mapIndexedNotNull null
                 mapOf("path" to out.absolutePath, "mime" to mime, "name" to name)

@@ -1,4 +1,5 @@
 import 'dart:io' show File;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -52,16 +53,26 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
     _delivering = true;
     try {
       final shared = ShareInbox.instance.take();
-      final photos = [for (final f in shared) if (f.isImage) await File(f.path).readAsBytes()];
+      Future<Uint8List> readShared(SharedFile shared) async {
+        if (!shared.isImage) return shared.readPdf();
+        final copy = File(shared.path);
+        try {
+          return await copy.readAsBytes();
+        } finally {
+          if (await copy.exists()) await copy.delete();
+        }
+      }
+      final photos = [for (final f in shared) if (f.isImage) await readShared(f)];
       final files = <PickedFile>[
         if (photos.isNotEmpty) PickedFile('scan.pdf', await ImportService.pdfFromPhotos(photos), photos: photos),
-        for (final f in shared) if (!f.isImage) PickedFile(f.name.toLowerCase().endsWith('.pdf') ? f.name : '${f.name}.pdf', await File(f.path).readAsBytes()),
+        for (final f in shared) if (!f.isImage) PickedFile(f.name.toLowerCase().endsWith('.pdf') ? f.name : '${f.name}.pdf', await readShared(f)),
       ];
       if (files.isNotEmpty) await navigatorKey.currentState?.push(MaterialPageRoute<void>(builder: (_) => UploadScreen(shared: files)));
     } catch (e) {
       debugPrint('Opening shared files failed: $e');
     } finally {
       _delivering = false;
+      if (ShareInbox.instance.hasPending) _deliverShare();
     }
   }
 

@@ -224,7 +224,7 @@ class Dose {
 enum VitalType { bp, sugar, weight, spo2 }
 
 class Vital {
-  Vital({required this.id, required this.memberId, required this.type, required this.at, this.a = 0, this.b = 0, this.pulse = 0, this.afterMeal = false});
+  Vital({required this.id, required this.memberId, required this.type, required this.at, this.a = 0, this.b = 0, this.pulse = 0, this.afterMeal = false, this.cultFit});
   final String id;
   String memberId;
   VitalType type;
@@ -233,10 +233,11 @@ class Vital {
   double b; // diastolic
   double pulse;
   bool afterMeal; // sugar only
-  Map<String, dynamic> toJson() => {'id': id, 'memberId': memberId, 'type': type.name, 'at': at.toIso8601String(), 'a': a, 'b': b, 'pulse': pulse, 'afterMeal': afterMeal};
+  final Map<String, dynamic>? cultFit;
+  Map<String, dynamic> toJson() => {'id': id, 'memberId': memberId, 'type': type.name, 'at': at.toIso8601String(), 'a': a, 'b': b, 'pulse': pulse, 'afterMeal': afterMeal, if (cultFit != null) 'cultFit': cultFit};
   factory Vital.fromJson(Map<String, dynamic> j) => Vital(
         id: j['id'], memberId: j['memberId'], type: VitalType.values.byName(j['type']), at: _d(j['at']),
-        a: (j['a'] as num).toDouble(), b: (j['b'] as num?)?.toDouble() ?? 0, pulse: (j['pulse'] as num?)?.toDouble() ?? 0, afterMeal: j['afterMeal'] ?? false,
+        a: (j['a'] as num).toDouble(), b: (j['b'] as num?)?.toDouble() ?? 0, pulse: (j['pulse'] as num?)?.toDouble() ?? 0, afterMeal: j['afterMeal'] ?? false, cultFit: j['cultFit'] as Map<String, dynamic>?,
       );
 }
 

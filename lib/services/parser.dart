@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../data/catalog.dart';
+import '../data/cult_fit.dart';
 import '../data/models.dart';
 
 class ExtractedTest {
@@ -19,7 +20,8 @@ class ExtractedTest {
 }
 
 class ExtractedReport {
-  ExtractedReport({required this.lab, required this.date, required this.patientName, required this.tests, required this.pages, required this.text, this.fromPhoto = false, this.upright});
+  ExtractedReport({required this.lab, required this.date, required this.patientName, required this.tests, required this.pages, required this.text, this.fromPhoto = false, this.upright, this.cult});
+  final CultMeasurement? cult;
   final String lab;
 
   /// Read from a photo or scan (OCR): its values always wait for a human check.

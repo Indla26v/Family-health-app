@@ -37,13 +37,13 @@ class BulkImporter {
     while (_queue.isNotEmpty && !j.paused) {
       final f = _queue.first;
       try {
-        final o = await processUpload(s, memberId: _memberId!, fileName: f.name, bytes: f.bytes);
-        final y = o.doc.date.year;
+        final o = await importFile(s, memberId: _memberId!, fileName: f.name, bytes: f.bytes);
+        final y = o.date.year;
         j.byYear[0]![0]--;
         final e = j.byYear.putIfAbsent(y, () => [0, 0, 0]);
         e[0]++;
         e[1]++;
-        if (o.doc.status == DocStatus.needsReview) {
+        if (o.lab?.doc.status == DocStatus.needsReview) {
           e[2]++;
           j.needReview++;
         }

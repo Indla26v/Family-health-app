@@ -6,6 +6,25 @@ import '../data/store.dart';
 import 'importer.dart';
 import 'parser.dart';
 
+class MeasurementImport {
+  const MeasurementImport(this.date, this.lab);
+  final DateTime date;
+  final UploadOutcome? lab;
+}
+
+Future<MeasurementImport> importFile(AppStore s, {required String memberId, required String fileName,
+    required Uint8List bytes, List<Uint8List>? photos, bool cultOnly = false}) async {
+  final report = photos != null && photos.isNotEmpty ? await ImportService.readPhotos(photos) : await ImportService.read(bytes, fileName);
+  final cult = report.cult;
+  if (cult != null) {
+    s.addCultMeasurement(memberId, cult);
+    return MeasurementImport(cult.at, null);
+  }
+  if (cultOnly) throw const FormatException('Choose an original Cult Smart Scale measurement PDF.');
+  final lab = await processUpload(s, memberId: memberId, fileName: fileName, bytes: bytes, photos: photos, extracted: report);
+  return MeasurementImport(lab.doc.date, lab);
+}
+
 class UploadOutcome {
   UploadOutcome({required this.doc, required this.total, required this.auto, required this.check, required this.patient, required this.nameMismatch, required this.pages});
   final Doc doc;
@@ -20,9 +39,10 @@ class UploadOutcome {
 /// page doesn't match the chosen member, nothing is auto-confirmed.
 ///
 /// [photos]: pages photographed with the scanner, read with OCR and stored as one PDF.
-Future<UploadOutcome> processUpload(AppStore s, {required String memberId, required String fileName, required Uint8List bytes, Doc? retry, List<Uint8List>? photos}) async {
+Future<UploadOutcome> processUpload(AppStore s, {required String memberId, required String fileName, required Uint8List bytes, Doc? retry, List<Uint8List>? photos, ExtractedReport? extracted}) async {
   final member = s.member(memberId)!;
-  final report = photos != null && photos.isNotEmpty ? await ImportService.readPhotos(photos) : await ImportService.read(bytes, fileName);
+  final report = extracted ?? (photos != null && photos.isNotEmpty ? await ImportService.readPhotos(photos) : await ImportService.read(bytes, fileName));
+  if (report.cult != null) throw const FormatException('Import this measurement from Cult Fit data.');
   final docId = retry?.id ?? s.newId('doc');
   // Pages that were sideways are kept upright, so the report reads the right way round.
   final upright = report.upright;

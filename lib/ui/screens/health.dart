@@ -17,6 +17,7 @@ import '../widgets/pill_menu.dart';
 import '../widgets/trend_card.dart';
 import 'arrange_cards.dart';
 import 'diabetes_detail.dart';
+import 'cult_fit.dart';
 import 'log_reading.dart';
 import 'reading_history.dart';
 import 'test_trend.dart';
@@ -49,6 +50,7 @@ class HealthScreen extends StatefulWidget {
 
 class _HealthScreenState extends State<HealthScreen> {
   String period = 'all';
+  bool cult = false;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +74,8 @@ class _HealthScreenState extends State<HealthScreen> {
 
     return Column(children: [
       ScreenHeader(title: tr('Health'), big: true, trailing: headerActions(MemberPicker(members: people, selectedId: m.id, onSelect: s.selectMember))),
-      Expanded(
+      HealthDataTabs(cult: cult, onChanged: (value) => setState(() => cult = value)),
+      if (cult) Expanded(child: CultFitPanel(key: ValueKey(m.id), member: m)) else Expanded(
         child: ListView(padding: const EdgeInsets.fromLTRB(kSide, 8, kSide, 108), children: staggered([
           Wrap(
             spacing: 4,

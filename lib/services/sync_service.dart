@@ -349,7 +349,7 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
     // Readings: same person, type, minute and values.
     final dupVitals = <String>{};
     for (final v in s.vitals.where((v) => !online('vitals', v.id))) {
-      if (s.vitals.any((o) => o.id != v.id && online('vitals', o.id) && o.memberId == v.memberId && o.type == v.type && o.afterMeal == v.afterMeal && o.at.difference(v.at).inSeconds.abs() < 60 && o.a == v.a && o.b == v.b)) dupVitals.add(v.id);
+      if (v.cultFit == null && s.vitals.any((o) => o.id != v.id && online('vitals', o.id) && o.memberId == v.memberId && o.type == v.type && o.afterMeal == v.afterMeal && o.at.difference(v.at).inSeconds.abs() < 60 && o.a == v.a && o.b == v.b)) dupVitals.add(v.id);
     }
     if (dupVitals.isNotEmpty) {
       s.removeVitalsWhere((v) => dupVitals.contains(v.id));
@@ -782,7 +782,7 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
       add('doseLogs', l.key, {'medId': l.medId, 'memberId': l.memberId, 'day': l.day, 'timeKey': l.timeKey, 'state': l.state.name, 'at': _utc(l.at)}, memberId: l.memberId, parent: l.medId);
     }
     for (final v in s.vitals) {
-      add('vitals', v.id, {'id': v.id, 'memberId': v.memberId, 'type': v.type.name, 'at': _utc(v.at), 'a': v.a, 'b': v.b, 'pulse': v.pulse, 'afterMeal': v.afterMeal}, memberId: v.memberId);
+      add('vitals', v.id, {'id': v.id, 'memberId': v.memberId, 'type': v.type.name, 'at': _utc(v.at), 'a': v.a, 'b': v.b, 'pulse': v.pulse, 'afterMeal': v.afterMeal, if (v.cultFit != null) 'cultFit': v.cultFit}, memberId: v.memberId);
     }
     for (final a in s.appts) {
       add('appointments', a.id, {
@@ -870,7 +870,7 @@ class SyncService extends ChangeNotifier with WidgetsBindingObserver {
         s.logs[l.key] = l;
       case 'vitals':
         s.putSyncedVital(
-          Vital(id: d['id'] as String, memberId: d['memberId'] as String, type: VitalType.values.byName(d['type'] as String), at: _local(d['at']), a: _dbl(d['a']), b: _dbl(d['b']), pulse: _dbl(d['pulse']), afterMeal: d['afterMeal'] as bool? ?? false),
+          Vital(id: d['id'] as String, memberId: d['memberId'] as String, type: VitalType.values.byName(d['type'] as String), at: _local(d['at']), a: _dbl(d['a']), b: _dbl(d['b']), pulse: _dbl(d['pulse']), afterMeal: d['afterMeal'] as bool? ?? false, cultFit: d['cultFit'] as Map<String,dynamic>? ?? s.vitals.where((v) => v.id == d['id']).firstOrNull?.cultFit),
         );
       case 'appointments':
         _put<Appointment>(

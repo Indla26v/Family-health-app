@@ -23,7 +23,7 @@ class _BulkImportScreenState extends State<BulkImportScreen> {
     try {
       final picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png']);
       if (picked.isEmpty) return;
-      final list = <PickedFile>[for (final f in picked) PickedFile(f.name, await f.readAsBytes())];
+      final list = <PickedFile>[for (final f in picked) await PickedFile.read(f)];
       BulkImporter.start(s, memberId!, list);
     } catch (_) {
       if (mounted) toast(context, 'Could not open those files');

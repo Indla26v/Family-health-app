@@ -10,6 +10,7 @@ import 'package:pdf/pdf.dart' as pdfw;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
+import '../data/cult_fit.dart';
 import 'ocr.dart';
 import 'parser.dart';
 
@@ -24,12 +25,22 @@ class ImportService {
   static Future<ExtractedReport> read(Uint8List bytes, String name) async {
     if (!isPdf(name)) return readPhotos([bytes]);
     PdfDocument? doc;
+    var isCult = false;
     try {
       await pdfrxFlutterInitialize();
       doc = await PdfDocument.openData(bytes, sourceName: name);
       final buf = StringBuffer();
       for (final p in doc.pages) {
         final t = await p.loadStructuredText();
+        if (CultMeasurement.recognizes(t.fullText)) {
+          isCult = true;
+          if (doc.pages.length != 1) throw const FormatException('Share each Cult Fit measurement separately.');
+          final raw = await p.loadText();
+          if (raw == null) throw const FormatException('Missing Cult Fit measurement text.');
+          final cult = CultMeasurement.parse(raw.fullText, await _bodyType(p));
+          return ExtractedReport(lab: 'Cult Fit', date: cult.at, patientName: cult.fields['Scale profile'],
+              tests: [], pages: 1, text: '', cult: cult);
+        }
         buf.writeln(t.fullText);
       }
       final report = ReportParser.parse(buf.toString(), pages: doc.pages.length);
@@ -44,14 +55,41 @@ class ImportService {
         texts.add(r?.text ?? '');
         turns.add(r?.turns ?? 0);
       }
-      final ocr = ReportParser.parse(texts.join('\n'), pages: doc.pages.length);
+      final text = texts.join('\n');
+      if (CultMeasurement.recognizes(text)) throw const FormatException('Share the original Cult Fit PDF to read the body type chart.');
+      final ocr = ReportParser.parse(text, pages: doc.pages.length);
       if (ocr.tests.isEmpty) return report;
       return _photo(ocr, upright: await _turnPages(doc, turns));
+    } on FormatException {
+      rethrow;
     } catch (e) {
+      if (isCult) throw const FormatException('Could not extract this Cult Fit measurement.');
       debugPrint('PDF read failed for $name: $e');
       return ExtractedReport(lab: 'Lab report', date: null, patientName: null, tests: [], pages: 1, text: '');
     } finally {
       await doc?.dispose();
+    }
+  }
+
+  // The scale uses a coloured background to select one cell of its 3 × 3 grid.
+  // Sample the blank left inset of each cell at the standard report size.
+  static Future<String> _bodyType(PdfPage page) async {
+    final image = await page.render(width: 595, height: 842, fullWidth: 595, fullHeight: 842);
+    if (image == null) throw const FormatException('Could not read the body type chart.');
+    try {
+      const labels = ['Lean','Lean muscular','Muscular','Lack of exercise','Standard',
+        'Standard muscular','Edematous obese','Overweight muscular','Muscular overweight'];
+      final selected = <String>[];
+      for (var i = 0; i < labels.length; i++) {
+        final x = 339 + (i % 3) * 79, y = 286 + (i ~/ 3) * 35;
+        final offset = (y * image.width + x) * 4;
+        final pixels = image.pixels;
+        if (pixels[offset + 1] - pixels[offset + 2] > 35) selected.add(labels[i]);
+      }
+      if (selected.length != 1) throw const FormatException('Unrecognized body type chart.');
+      return selected.single;
+    } finally {
+      image.dispose();
     }
   }
 

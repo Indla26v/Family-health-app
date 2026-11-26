@@ -6,6 +6,9 @@ class SharedFile {
   const SharedFile({required this.path, required this.mime, required this.name});
   final String path, mime, name;
   bool get isImage => mime.startsWith('image/');
+  Future<Uint8List> readPdf() async =>
+      await const MethodChannel('family_health/share_pdf').invokeMethod<Uint8List>('read', path) ??
+      (throw StateError('The shared PDF is no longer accessible.'));
 }
 
 /// Receives files shared from Photos, WhatsApp, Gmail… (Android). The activity
@@ -32,6 +35,7 @@ class ShareInbox extends ChangeNotifier {
       final list = await _channel.invokeListMethod<Map<dynamic, dynamic>>('takeShared');
       if (list == null || list.isEmpty) return;
       _pending = [
+        ..._pending,
         for (final m in list) SharedFile(path: m['path'] as String, mime: m['mime'] as String, name: m['name'] as String),
       ];
       notifyListeners();
